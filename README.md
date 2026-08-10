@@ -124,7 +124,7 @@ Read this before trusting an output. In priority order:
 
 ## Roadmap
 
-Phased implementation plan: [`PLAN.md`](PLAN.md). Longer-term direction and competitive positioning: [`ROADMAP.md`](ROADMAP.md).
+Phased implementation plan: [`PLAN.md`](PLAN.md). Longer-term direction and competitive positioning: [`ROADMAP.md`](ROADMAP.md). Current priority is verification, not new features — see ROADMAP's "Verification-first phase" and the external chorale benchmark protocol: [`BENCHMARK.md`](BENCHMARK.md).
 
 ## Development
 
