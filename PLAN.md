@@ -44,7 +44,7 @@ Done since the first pass (Phase 7 "thicken" work, tracked here rather than
 opening a second plan doc):
 - `UnpreparedSixFourRule` — the initial spine let the search open a phrase
   on an unrestricted I64, which isn't legal Common Practice writing; see
-  README "Current limitations" #2 for what this rule does and doesn't cover.
+  README "Current limitations" #1 for what this rule does and doesn't cover.
 - `tests/properties.rs` (`proptest`, spec: "可能なら"): pitch-class
   normalization, interval symmetry, chord-spelling round trip, and key
   scale-degree round trip. Scoped to the (root, quality) space
@@ -64,6 +64,20 @@ opening a second plan doc):
   real pedagogy still — see README "Current limitations" #7 — the
   exception is unconditional here rather than "only when resolving up
   would leave the chord incomplete."
+- Fail-closed pitch spelling: `spell_above`/`accidental_for_offset` used
+  to fall back to `Natural` — a silently wrong pitch, not just a wrong
+  spelling — when a required accidental exceeded double-flat/double-sharp.
+  `Chord::pitch_classes()` now returns `Result` (unreachable via
+  `RomanNumeral::to_chord` with any practical key; only reachable by
+  constructing a `Chord` directly with an unusual root).
+  `Key::diatonic_pitch_class` initially looked provably safe for *any*
+  tonic by hand — proptest found a counterexample (a double-sharp tonic
+  can need a triple-sharp for its own third), so `Key::new` became a
+  validated constructor instead: it's the only public way to build a
+  `Key` with an arbitrary tonic, so once one exists every lookup on it
+  (`diatonic_pitch_class`, `scale`, `RomanNumeral::to_chord`, and
+  everything downstream in the search hot path) stays infallible. No
+  `Result` threading through candidate generation.
 
 ## Phases (AGENTS.md section 29, adapted to depth-first order)
 

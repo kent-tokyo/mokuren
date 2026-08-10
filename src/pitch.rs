@@ -367,37 +367,44 @@ impl Interval {
 /// stacking) so both stay diatonically correct without a circular
 /// dependency between them.
 ///
-/// Only correct when the required accidental is representable — see
-/// `accidental_for_offset`. Every caller in this crate only ever spells
-/// from diatonic, single-accidental roots (a practical key's tonic, or
-/// a chord root drawn from one), which never hits that limit. A `root`
-/// with an unusual accidental of its own (as `Chord::new` — a public
-/// constructor — technically permits) can exceed it; see
-/// `tests/properties.rs` for a pinned example.
-pub(crate) fn spell_above(root: PitchClass, letter_steps: i32, semitones: i32) -> PitchClass {
+/// Returns `None` when the required accidental exceeds what
+/// `Accidental` can represent — see `accidental_for_offset`. Every
+/// caller in this crate only ever spells from diatonic, single-accidental
+/// roots (a practical key's tonic, or a chord root drawn from one),
+/// which never hits that limit — `Key::diatonic_pitch_class` proves this
+/// for scale construction specifically (`tests/properties.rs`) and
+/// unwraps accordingly. A `root` with an unusual accidental of its own
+/// (as `Chord::new` — a public constructor — technically permits) can
+/// exceed it; `Chord::pitch_classes` surfaces that as `Err` rather than
+/// a wrong pitch.
+pub(crate) fn spell_above(
+    root: PitchClass,
+    letter_steps: i32,
+    semitones: i32,
+) -> Option<PitchClass> {
     let letter_index = (root.letter.step_index() + letter_steps).rem_euclid(7);
     let letter = NoteLetter::from_step_index(letter_index);
     let target_semitone = (root.semitone() as i32 + semitones).rem_euclid(12);
     let natural = PitchClass::natural(letter).semitone() as i32;
-    let accidental = accidental_for_offset((target_semitone - natural).rem_euclid(12));
-    PitchClass::new(letter, accidental)
+    let accidental = accidental_for_offset((target_semitone - natural).rem_euclid(12))?;
+    Some(PitchClass::new(letter, accidental))
 }
 
 /// `Accidental` only spans double-flat..double-sharp (-2..=2 semitones
-/// from natural). An offset outside that range — reachable only from a
-/// non-diatonic `root`, see `spell_above` — has no representable
-/// accidental and falls back to `Natural`, which is a wrong pitch, not
-/// just a wrong spelling. Widening `Accidental` to cover it would be
+/// from natural). An offset outside that range has no representable
+/// accidental: `None`, not a `Natural` fallback that would silently
+/// hand back a wrong pitch. Widening `Accidental` to cover it would be
 /// speculative: nothing in this crate ever constructs a root that
-/// triggers it (AGENTS.md section 5 keeps v0.1 diatonic-only).
-pub(crate) fn accidental_for_offset(offset: i32) -> Accidental {
+/// triggers it (AGENTS.md section 5 keeps v0.1 diatonic-only) — see
+/// `spell_above`'s callers for how they fail closed instead.
+pub(crate) fn accidental_for_offset(offset: i32) -> Option<Accidental> {
     match offset.rem_euclid(12) {
-        0 => Accidental::Natural,
-        1 => Accidental::Sharp,
-        2 => Accidental::DoubleSharp,
-        11 => Accidental::Flat,
-        10 => Accidental::DoubleFlat,
-        _ => Accidental::Natural,
+        0 => Some(Accidental::Natural),
+        1 => Some(Accidental::Sharp),
+        2 => Some(Accidental::DoubleSharp),
+        11 => Some(Accidental::Flat),
+        10 => Some(Accidental::DoubleFlat),
+        _ => None,
     }
 }
 
@@ -412,20 +419,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn spell_above_falls_back_to_natural_beyond_the_representable_accidental_range() {
+    fn spell_above_fails_closed_beyond_the_representable_accidental_range() {
         // Cbb (a root Chord::new() permits but the engine itself never
         // constructs) + a minor seventh's third (3 semitones) needs a
         // triple-flat E to spell correctly. `Accidental` can't represent
-        // that, so this pins the documented Natural fallback rather than
-        // letting it silently drift — see `spell_above`'s doc comment.
+        // that, so this pins `None` rather than a wrong pitch — see
+        // `spell_above`'s doc comment.
         let cbb = PitchClass::new(NoteLetter::C, Accidental::DoubleFlat);
-        let third = spell_above(cbb, 2, 3);
-        assert_eq!(third.letter, NoteLetter::E);
-        assert_eq!(third.accidental, Accidental::Natural);
-        assert_ne!(
-            third.semitone(),
-            (cbb.semitone() as i32 + 3).rem_euclid(12) as u8
-        );
+        assert_eq!(spell_above(cbb, 2, 3), None);
     }
 
     #[test]

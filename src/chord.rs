@@ -5,6 +5,7 @@
 //! `HarmonicFunction` names its role (tonic/predominant/dominant) so
 //! progression evaluation can reason at the function level.
 
+use crate::error::{MokurenError, Result};
 use crate::key::{Key, ScaleDegree};
 use crate::pitch::{PitchClass, spell_above};
 use std::fmt;
@@ -241,21 +242,47 @@ impl Chord {
     }
 
     /// Chord tones stacked in thirds above the root, correctly spelled.
-    pub fn pitch_classes(&self) -> Vec<PitchClass> {
+    ///
+    /// Fails closed: if a tone needs an accidental beyond what
+    /// `Accidental` can represent (double-flat..double-sharp), this
+    /// returns `Err` rather than a silently wrong pitch. Every chord
+    /// `RomanNumeral::to_chord` builds from a practical key is safe —
+    /// this is only reachable by constructing a `Chord` directly with an
+    /// unusual `root` (see `tests/properties.rs`).
+    pub fn pitch_classes(&self) -> Result<Vec<PitchClass>> {
         self.quality
             .interval_semitones()
             .iter()
             .enumerate()
-            .map(|(i, &semitones)| spell_above(self.root, 2 * i as i32, semitones))
+            .map(|(i, &semitones)| {
+                spell_above(self.root, 2 * i as i32, semitones).ok_or_else(|| {
+                    MokurenError::UnrepresentablePitch(format!(
+                        "{:?} chord on {} has no representable spelling for tone {i}",
+                        self.quality, self.root
+                    ))
+                })
+            })
             .collect()
     }
 
+    /// `None` both when this isn't a seventh chord and when the seventh
+    /// can't be spelled — a rule that can't determine the seventh can't
+    /// enforce its resolution either way, so both cases mean "nothing to
+    /// check here," never a fabricated pitch.
     pub fn chordal_seventh(&self) -> Option<PitchClass> {
-        self.quality.is_seventh().then(|| self.pitch_classes()[3])
+        if !self.quality.is_seventh() {
+            return None;
+        }
+        self.pitch_classes().ok().map(|tones| tones[3])
     }
 
+    /// `false` both when `pc` genuinely isn't a chord tone and when the
+    /// chord can't be spelled at all — used as a candidate-generation
+    /// filter, where "can't confirm this chord tone" and "exclude it"
+    /// are the same safe outcome.
     pub fn contains_pitch_class(&self, pc: PitchClass) -> bool {
-        self.pitch_classes().iter().any(|t| t.is_enharmonic_to(&pc))
+        self.pitch_classes()
+            .is_ok_and(|tones| tones.iter().any(|t| t.is_enharmonic_to(&pc)))
     }
 }
 
@@ -267,7 +294,7 @@ mod tests {
     #[test]
     fn c_major_triad_spelling() {
         let chord = RomanNumeral::I.to_chord(&Key::C_MAJOR);
-        let tones = chord.pitch_classes();
+        let tones = chord.pitch_classes().unwrap();
         assert_eq!(tones, vec![PitchClass::C, PitchClass::E, PitchClass::G]);
     }
 
@@ -275,16 +302,32 @@ mod tests {
     fn v7_in_c_major_is_g_b_d_f() {
         let chord = RomanNumeral::V7.to_chord(&Key::C_MAJOR);
         assert_eq!(
-            chord.pitch_classes(),
+            chord.pitch_classes().unwrap(),
             vec![PitchClass::G, PitchClass::B, PitchClass::D, PitchClass::F]
         );
+    }
+
+    #[test]
+    fn unspellable_chord_fails_closed_instead_of_returning_a_wrong_pitch() {
+        // Same case pinned in src/pitch.rs: a double-flat root combined
+        // with a quality whose third needs a triple-flat to spell
+        // correctly. Reachable only via `Chord::new` directly — no
+        // `RomanNumeral::to_chord` ever produces this root/quality pair.
+        let cbb = PitchClass::new(NoteLetter::C, Accidental::DoubleFlat);
+        let chord = Chord::new(cbb, ChordQuality::MinorSeventh);
+        assert!(matches!(
+            chord.pitch_classes(),
+            Err(MokurenError::UnrepresentablePitch(_))
+        ));
+        assert!(!chord.contains_pitch_class(PitchClass::E));
+        assert_eq!(chord.chordal_seventh(), None);
     }
 
     #[test]
     fn vii_dim_in_c_major_is_b_d_f() {
         let chord = RomanNumeral::VII_DIM.to_chord(&Key::C_MAJOR);
         assert_eq!(
-            chord.pitch_classes(),
+            chord.pitch_classes().unwrap(),
             vec![PitchClass::B, PitchClass::D, PitchClass::F]
         );
     }

@@ -112,7 +112,7 @@ proptest! {
     #[test]
     fn chord_pitch_classes_match_interval_semitones(root in practical_pitch_class(), quality in diatonic_chord_quality()) {
         let chord = Chord::new(root, quality);
-        let tones = chord.pitch_classes();
+        let tones = chord.pitch_classes().expect("practical roots with diatonic qualities are always spellable");
         let semitones = quality.interval_semitones();
         prop_assert_eq!(tones.len(), semitones.len());
         for (tone, &offset) in tones.iter().zip(semitones) {
@@ -122,13 +122,15 @@ proptest! {
     }
 
     /// Every scale degree of a practical major key round-trips through
-    /// `diatonic_pitch_class` / `degree_of`.
+    /// `diatonic_pitch_class` / `degree_of`. `Key::new` is expected to
+    /// accept every practical (single-accidental) tonic — this is part
+    /// of what "practical" means here.
     #[test]
     fn key_degree_round_trips_for_any_major_tonic(
         tonic in practical_pitch_class(),
         degree in 1u8..=7,
     ) {
-        let key = Key::new(tonic, Mode::Major);
+        let key = Key::new(tonic, Mode::Major).expect("a practical tonic should always be a valid key");
         let pc = key.diatonic_pitch_class(ScaleDegree(degree));
         prop_assert_eq!(key.degree_of(pc), Some(ScaleDegree(degree)));
     }
@@ -137,10 +139,29 @@ proptest! {
     /// classes — no two degrees of a practical key collide.
     #[test]
     fn key_scale_has_no_enharmonic_duplicates(tonic in practical_pitch_class()) {
-        let scale = Key::new(tonic, Mode::Major).scale();
+        let key = Key::new(tonic, Mode::Major).expect("a practical tonic should always be a valid key");
+        let scale = key.scale();
         for i in 0..scale.len() {
             for j in (i + 1)..scale.len() {
                 prop_assert!(!scale[i].is_enharmonic_to(&scale[j]));
+            }
+        }
+    }
+
+    /// `Key::new` is the fail-closed gate for arbitrary tonics — proptest
+    /// caught a real case here: a double-sharp tonic's own third can
+    /// need a triple-sharp, which isn't as rare an edge as it first
+    /// looked (see key.rs history). For *any* pitch class as tonic
+    /// (including double-flat/double-sharp, not just
+    /// `practical_pitch_class()`), `new` must never panic, and if it
+    /// returns `Ok`, every scale degree on that key must genuinely be
+    /// safe to look up (validating that the validator actually
+    /// validates, not just that it returns *something*).
+    #[test]
+    fn key_new_either_succeeds_safely_or_fails_cleanly(tonic in any_pitch_class()) {
+        if let Ok(key) = Key::new(tonic, Mode::Major) {
+            for degree in 1..=7u8 {
+                let _ = key.diatonic_pitch_class(ScaleDegree(degree));
             }
         }
     }

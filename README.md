@@ -135,3 +135,7 @@ cargo test --all-features
 ```
 
 All three are green as of this commit.
+
+## License
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option, the standard dual license for Rust crates.

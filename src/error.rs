@@ -15,6 +15,12 @@ pub enum MokurenError {
     UnknownAlternative(String),
     /// The search produced no valid harmonization at all.
     NoValidHarmonization,
+    /// A chord tone needed an accidental beyond what `Accidental` can
+    /// represent (double-flat..double-sharp) to spell correctly. Never
+    /// returned for a chord built from `RomanNumeral::to_chord` with a
+    /// practical key — only reachable by constructing a `Chord` (or a
+    /// `Key` with an unusually altered tonic) directly.
+    UnrepresentablePitch(String),
 }
 
 impl fmt::Display for MokurenError {
@@ -24,6 +30,7 @@ impl fmt::Display for MokurenError {
             MokurenError::UnknownPosition(pos) => write!(f, "unknown position: {pos}"),
             MokurenError::UnknownAlternative(msg) => write!(f, "unknown alternative: {msg}"),
             MokurenError::NoValidHarmonization => write!(f, "no valid harmonization found"),
+            MokurenError::UnrepresentablePitch(msg) => write!(f, "unrepresentable pitch: {msg}"),
         }
     }
 }

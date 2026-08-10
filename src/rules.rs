@@ -267,13 +267,16 @@ impl Rule for MissingChordToneRule {
         Severity::Hard
     }
     fn evaluate(&self, ctx: &RuleContext) -> RuleResult {
+        // An unspellable chord can't be verified complete, so it fails
+        // closed as a violation rather than passing by default.
+        let Ok(tones) = ctx.chord.pitch_classes() else {
+            return RuleResult::violation(self.id(), self.severity());
+        };
         let voiced: Vec<PitchClass> = VoicePart::all()
             .into_iter()
             .map(|v| ctx.current.pitch(v).pitch_class)
             .collect();
-        let complete = ctx
-            .chord
-            .pitch_classes()
+        let complete = tones
             .iter()
             .all(|tone| voiced.iter().any(|v| v.is_enharmonic_to(tone)));
         if complete {
@@ -636,7 +639,11 @@ impl Rule for DoublingPreferenceRule {
         let Some(doubled) = doubled_pitch_class(ctx.current) else {
             return RuleResult::pass();
         };
-        let tones = ctx.chord.pitch_classes();
+        // A soft preference with nothing to score is just a no-op, not a
+        // wrong answer — unlike MissingChordToneRule, this isn't a gate.
+        let Ok(tones) = ctx.chord.pitch_classes() else {
+            return RuleResult::pass();
+        };
         let delta = if doubled.is_enharmonic_to(&tones[0]) {
             0.3 // doubled root
         } else if doubled.is_enharmonic_to(&tones[2]) {

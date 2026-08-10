@@ -24,7 +24,7 @@ None of these expose "why not `vi`, and by how much did it lose" as a first-clas
 - **Corpus scale / ML tooling.** MusPy and music21's corpus tools serve a different audience (researchers training or evaluating generative models) that mokuren isn't building for.
 - **Notation engraving quality.** Abjad-via-LilyPond is a mature, dedicated tool for that; mokuren has no notation renderer and isn't planning to build one (section 27).
 - **Audio/synthesis.** tunes and Euterpea both go there; mokuren's non-goals list (section 19/27) rules this out explicitly.
-- **Raw speed claims.** Not measured yet (section 23) — competing on unverified performance would be dishonest before a `criterion` benchmark exists.
+- **Raw speed claims beyond what's measured.** `criterion` benchmarks now exist (`benches/harmonize.rs`) with real one-off numbers in the README, but that's a single data point on one machine, not a tracked performance story — still not something to build a competitive "fast" claim on (section 23).
 
 ## Phased roadmap
 

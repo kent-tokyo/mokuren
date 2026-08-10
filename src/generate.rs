@@ -166,7 +166,10 @@ impl<'a> CandidateGenerator<'a> {
         rules: &[Box<dyn Rule>],
         diagnostics: &mut Diagnostics,
     ) -> Option<EvaluatedCandidate> {
-        let tones = chord.pitch_classes();
+        // An unspellable chord simply isn't offered as a candidate — the
+        // same "exclude, don't fabricate" outcome as a hard-rule
+        // rejection, just decided one step earlier.
+        let tones = chord.pitch_classes().ok()?;
         let bass_pc = tones[rn.inversion.bass_chord_tone_index()];
         let mut best: Option<EvaluatedCandidate> = None;
 
