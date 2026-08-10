@@ -163,6 +163,54 @@ impl Melody {
     }
 }
 
+/// One event in a raw input line: either a sounding note or a rest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MelodyEvent {
+    Note(Note),
+    Rest(Rest),
+}
+
+/// A monophonic line that may contain rests — the raw shape of an input
+/// melody before harmonization. `Melody` itself (and everything
+/// downstream: `Composer::harmonize`, search, explain) stays a plain
+/// `Vec<Note>` with no rest variant, so a rest is resolved *before*
+/// reaching that API rather than threaded through it: `phrases()` splits
+/// a `MelodyLine` at each rest into contiguous runs of notes, matching
+/// how a breath rest in a chorale actually functions — a phrase boundary,
+/// not a gap inside one continuous harmonic idea.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MelodyLine {
+    pub events: Vec<MelodyEvent>,
+}
+
+impl MelodyLine {
+    pub fn new(events: Vec<MelodyEvent>) -> Self {
+        MelodyLine { events }
+    }
+
+    /// Splits into contiguous note runs at each rest. Leading, trailing,
+    /// and consecutive rests never produce an empty phrase. A rest-free
+    /// line always yields exactly one phrase equal to its own notes.
+    pub fn phrases(&self) -> Vec<Melody> {
+        let mut phrases = Vec::new();
+        let mut current = Vec::new();
+        for event in &self.events {
+            match event {
+                MelodyEvent::Note(note) => current.push(*note),
+                MelodyEvent::Rest(_) => {
+                    if !current.is_empty() {
+                        phrases.push(Melody::new(std::mem::take(&mut current)));
+                    }
+                }
+            }
+        }
+        if !current.is_empty() {
+            phrases.push(Melody::new(current));
+        }
+        phrases
+    }
+}
+
 /// One voice's line within a `Passage` — e.g. the alto line of a
 /// harmonization result.
 #[derive(Debug, Clone, PartialEq)]
@@ -235,5 +283,55 @@ mod tests {
             assert_eq!(Duration::from_beats(d.beats()), Some(d));
         }
         assert_eq!(Duration::from_beats(1.0 / 3.0), None); // a triplet: not representable
+    }
+
+    #[test]
+    fn rest_free_line_yields_exactly_one_phrase_equal_to_its_notes() {
+        let notes = Melody::parse("C4 C4 G4 G4 A4 A4 G4").unwrap().notes;
+        let line = MelodyLine::new(notes.iter().copied().map(MelodyEvent::Note).collect());
+        let phrases = line.phrases();
+        assert_eq!(phrases, vec![Melody::new(notes)]);
+    }
+
+    #[test]
+    fn a_rest_splits_the_line_into_two_phrases() {
+        let n = |p: &str| Note::new(p.parse().unwrap(), Duration::Quarter);
+        let r = MelodyEvent::Rest(Rest {
+            duration: Duration::Quarter,
+        });
+        let line = MelodyLine::new(vec![
+            MelodyEvent::Note(n("C4")),
+            MelodyEvent::Note(n("D4")),
+            r,
+            MelodyEvent::Note(n("E4")),
+        ]);
+        assert_eq!(
+            line.phrases(),
+            vec![
+                Melody::new(vec![n("C4"), n("D4")]),
+                Melody::new(vec![n("E4")]),
+            ]
+        );
+    }
+
+    #[test]
+    fn leading_trailing_and_consecutive_rests_produce_no_empty_phrase() {
+        let n = |p: &str| Note::new(p.parse().unwrap(), Duration::Quarter);
+        let r = MelodyEvent::Rest(Rest {
+            duration: Duration::Quarter,
+        });
+        let line = MelodyLine::new(vec![
+            r,
+            r,
+            MelodyEvent::Note(n("C4")),
+            r,
+            r,
+            MelodyEvent::Note(n("D4")),
+            r,
+        ]);
+        assert_eq!(
+            line.phrases(),
+            vec![Melody::new(vec![n("C4")]), Melody::new(vec![n("D4")])]
+        );
     }
 }

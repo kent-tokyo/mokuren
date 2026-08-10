@@ -172,6 +172,44 @@ opening a second plan doc):
     Not attempted this pass (`tasks/todo.md`) — a genuinely different
     kind of extension (letting a soprano note sit outside the chord)
     from what secondary dominants added (more chords to choose from).
+- Soprano-rest support (roadmap phase 4): `Melody`/`Composer::harmonize`
+  are unchanged — still a plain, rest-free `Vec<Note>`. A new `MelodyLine`
+  type (`src/melody.rs`) holds `Note`/`Rest` events; its `phrases()`
+  method splits at each rest into independent contiguous note runs,
+  harmonized separately through the same unchanged `Composer::harmonize`
+  path. Grounded in real data before picking this design (music21 query
+  over the actual Riemenschneider-numbered corpus, not assumption): of
+  the 75 chorales the old extractor excluded for a soprano rest, most
+  have only 1-2 short (single-beat) rests — consistent with a breath
+  mark at a phrase boundary, which is exactly what `phrases()` treats it
+  as. `examples/chorale_benchmark.rs` moved to fixture format v3 (a
+  `REST` token in the `soprano:` block); `tools/music21_chorale_extractor.py`
+  no longer skips a rest-containing chorale, emitting `REST` events
+  instead. A chorale is only "covered" if *every* phrase harmonizes —
+  chosen so the number stays comparable to the pre-rest baselines rather
+  than becoming a silently looser metric (a design point raised before
+  implementing: see `tasks/lessons.md`).
+  - Corpus grew from 144 to 182 chorales (+38, +26%) once the "soprano
+    rest" exclusion was removed. Re-run: coverage 94.5% (172/182),
+    statistically the same rate as the pre-rest 94.4% (136/144) but over
+    a meaningfully larger population, **zero regressions** on the
+    original 144 (directly diffed, not assumed).
+  - A discrepancy surfaced while grounding the design in real data:
+    Riemenschneider 327 ("Jesu, nun sei gepreiset") appeared to have 41
+    rests when sampled positionally (`parts[0]`), but the actual
+    extractor keys parts by name (`parts["Soprano"]`) — this piece has
+    15 total parts (extra instrumental doublings), and its *named*
+    Soprano part has zero rests, which is why it correctly appears
+    rest-free in every baseline. A reminder that a quick investigative
+    script and the real extractor can disagree if they don't select data
+    the same way — see `tasks/lessons.md`.
+  - Found a third instance of the known chordal-seventh/non-chord-tone
+    gap (Riemenschneider 132, in addition to 40 and 202 from the
+    v0.2.0 baseline) — only visible now because 132 has a soprano rest
+    and was excluded entirely before this feature landed. Evidence the
+    gap is a recurring pattern in the repertoire, not a one-off; still
+    not attempted (see `tasks/todo.md`).
+  - Full detail: `tasks/baseline-v0.3.0-soprano-rest.md`, `BENCHMARK.md`.
 - Voice-range investigation (roadmap phase 5): root-caused all 5 of the
   baseline's "voice range" failures to the same cause — a soprano note
   on A5, one step above `VoicePart::Soprano`'s old default ceiling (G5).

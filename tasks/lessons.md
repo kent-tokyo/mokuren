@@ -257,3 +257,30 @@ break an assumption the diagnostic tool was built on, without either one's
 own tests catching it (the tool's *own* correctness isn't covered by the
 library's test suite). Treat diagnostic/debugging tooling as needing the
 same scrutiny as production code when the system it inspects changes.
+
+## A quick investigative script and the real production code can silently select different data
+
+While grounding the soprano-rest design in real data (2026-08-11), a
+throwaway music21 script sampled each chorale's soprano part with
+`chorale.parts[0]` (positional) and found 82 chorales with a soprano
+rest. The actual extractor (`tools/music21_chorale_extractor.py`) keys
+parts by name instead — `{p.partName: p for p in chorale.parts}`, then
+`parts["Soprano"]` — and reported 75. The gap was chorales with *more
+than four* parts (extra instrumental doublings colla parte, e.g.
+Riemenschneider 327's 15-part cantata setting): `parts[0]` grabbed
+whatever part happened to be first in the score (an instrumental line,
+not necessarily the vocal soprano), which had rests the real named
+Soprano part didn't. Caught by directly re-querying the one suspicious
+title (`c.metadata.number == '327'`) against both selection methods
+rather than assuming the discrepancy was noise or a benign double-count
+— it would have been a real baseline-corrupting bug if the *extractor*
+had this off-by-index mistake instead of the throwaway script.
+
+**The pattern**: when a quick script written to sanity-check a design
+decision disagrees with what the actual production code would do on the
+same input, don't average the two numbers or shrug at the gap — find
+the *one* row that differs and check by hand which selection logic is
+right. A script exists to inform a decision quickly; it doesn't inherit
+correctness from the thing it's investigating, and matching the real
+selection logic (by name, not position) here mattered enough to change
+which chorales counted as "excluded for a rest" at all.

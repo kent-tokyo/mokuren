@@ -66,16 +66,29 @@ scope and phasing — this is the flat, scannable version.
   - Full table and per-chorale detail: `tasks/baseline-v0.2.0-secondary-dominants.md`.
   Regression-checked again at 94.4%: only 2 chorales (135, 230) differ
   from v0.1.0, both confirmed beam-width-recoverable.
+- ~~Soprano-rest support in `Melody` (roadmap phase 4)~~ — done
+  2026-08-11: `Melody`/`Composer::harmonize` unchanged (still a plain,
+  rest-free `Vec<Note>`); new `MelodyLine` type (`src/melody.rs`, holding
+  `Note`/`Rest` events) with `phrases()` splitting at each rest into
+  independent contiguous note runs, harmonized separately. Design
+  grounded in real music21 data before implementing (most of the 75
+  rest-excluded chorales have only 1-2 short rests — consistent with a
+  breath-mark phrase boundary). `examples/chorale_benchmark.rs` moved to
+  fixture format v3 (`REST` token); `tools/music21_chorale_extractor.py`
+  no longer skips a rest-containing chorale. A chorale only counts as
+  covered if *every* phrase harmonizes. Corpus grew 144 → 182 (+38,
+  +26%); re-run coverage 94.5% (172/182), zero regressions on the
+  original 144. Surfaced a third instance of the chordal-seventh/
+  non-chord-tone gap (Riemenschneider 132, see "Real correctness gaps"
+  below). Full detail: `tasks/baseline-v0.3.0-soprano-rest.md`.
 - **Next, per the user's approved order (2026-08-11)**: ① secondary
-  dominants + bisection — done, above. ② soprano-rest support in
-  `Melody` (roadmap phase 4) — next, since 20.2% of the *full* corpus
-  is excluded before harmonization is even attempted, a bigger and more
-  local win for the verification base than minor mode. ③ minor +
-  harmonic minor (roadmap phase 3). ④ adaptive/search-budget research —
-  see the width-curve item below. ⑤ cadential-6/4 lookahead (roadmap
-  phase 6, still deprioritized — 0 baseline failures traced to it).
+  dominants + bisection — done. ② soprano-rest support — done, above.
+  ③ minor + harmonic minor (roadmap phase 3) — next. ④ adaptive/
+  search-budget research — see the width-curve item below. ⑤
+  cadential-6/4 lookahead (roadmap phase 6, still deprioritized — 0
+  baseline failures traced to it).
 - **Requested but not yet done**: a width-vs-coverage/runtime curve
-  (32/64/128/256/512) across the *full* 144-chorale corpus (not just the
+  (32/64/128/256/512) across the *full* 182-chorale corpus (not just the
   failure subset the existing beam-width curve already covers), to
   inform whether an adaptive-retry search strategy (`harmonize(32)` →
   retry wider only on `NoValidHarmonization`) is worth the engineering
@@ -96,9 +109,14 @@ scope and phasing — this is the flat, scannable version.
   dominant seventh, which `ChordalSeventhResolutionRule` requires to
   resolve down by step — but the real melody leaps a third instead,
   consistent with the note being a decorative passing tone rather than
-  a real chordal seventh. Not yet scoped as a roadmap phase; a genuinely
-  different kind of model extension (soprano notes that don't constrain
-  the chord) from secondary dominants (more chords available).
+  a real chordal seventh. A third instance (Riemenschneider 132) surfaced
+  once soprano-rest support widened the corpus (2026-08-11) — it was
+  previously excluded entirely, so this wasn't a new occurrence, just a
+  newly-visible one; three independent chorales hitting the same gap is
+  evidence it's a recurring pattern, not a one-off. Not yet scoped as a
+  roadmap phase; a genuinely different kind of model extension (soprano
+  notes that don't constrain the chord) from secondary dominants (more
+  chords available).
 - Secondary dominants are narrower than full applied-chord theory: no
   applied leading-tone chords (vii°/x), no chained tonicization
   (encountered directly: Riemenschneider 234 needed two different
@@ -107,9 +125,6 @@ scope and phasing — this is the flat, scannable version.
   non-chromatic path, not by the rule itself permitting the chain),
   strict (no inner-voice-exception) resolution. Roadmap phase 2
   follow-up, not currently scheduled.
-- `Melody` has no `Rest` variant despite `Rest` existing as a type in
-  `melody.rs` — 20.2% of the full chorale corpus has a soprano rest and
-  can't even be attempted. Roadmap phase 4 (new, surfaced by the baseline).
 - Minor mode isn't just "add a Mode variant" — `RomanNumeral`'s chord
   qualities are currently hardcoded consts assuming major
   (`RomanNumeral::I` = `MajorTriad`, always). Minor mode requires deciding

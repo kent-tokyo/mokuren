@@ -28,8 +28,13 @@ What it does NOT do, on purpose:
     (whole/dotted-half/half/dotted-quarter/quarter/dotted-eighth/eighth/
     sixteenth — see src/melody.rs) is skipped with a clear reason, not
     approximated.
-  - It does not extract a chorale whose soprano has a rest — mokuren's
-    Melody is a plain contiguous Vec<Note>, it can't represent one.
+  - A soprano rest is written out as a `REST` event in the fixture
+    (fixture format v3) rather than skipping the chorale — mokuren's
+    Composer::harmonize still only ever sees a plain, rest-free Melody:
+    the harness splits at each rest into independent phrases before
+    harmonizing (see examples/chorale_benchmark.rs's MelodyLine::phrases
+    usage). Alto/tenor/bass reference pitches are still sampled only at
+    soprano *note* onsets — a rest has no onset to sample against.
 """
 
 import argparse
@@ -89,8 +94,8 @@ def extract_chorale(chorale):
     tenor = list(parts["Tenor"].flatten().notesAndRests)
     bass = list(parts["Bass"].flatten().notesAndRests)
 
-    if any(n.isRest for n in soprano):
-        return None, "soprano contains a rest (mokuren's Melody can't represent one)"
+    if all(n.isRest for n in soprano):
+        return None, "soprano is nothing but rests"
 
     key = chorale.analyze("key")
     if key.mode != "major":
@@ -106,6 +111,11 @@ def extract_chorale(chorale):
         fraction = QUARTER_LENGTH_TO_FRACTION.get(ql)
         if fraction is None:
             return None, f"soprano has an unrepresentable duration ({ql} quarter-lengths) at offset {n.offset}"
+
+        if n.isRest:
+            soprano_lines.append(f"{n.offset} REST {fraction}")
+            continue
+
         soprano_lines.append(f"{n.offset} {to_mokuren_pitch(n)} {fraction}")
 
         for ref_stream, ref_list, label in (

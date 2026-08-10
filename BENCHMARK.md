@@ -2,9 +2,9 @@
 
 This is the "fix the protocol before running it" document requested alongside the ROADMAP.md landscape update. It fixes *what* the benchmark measures and *what corpus it's allowed to touch*. No chorale data is vendored into this repository — see [Corpus source](#corpus-source-approach-decided-specific-source-still-open) below.
 
-**Status**: the harness (`examples/chorale_benchmark.rs`) and the music21 extraction adapter (`tools/music21_chorale_extractor.py`) are implemented and validated against the full 144-chorale major-mode subset, twice now — [v0.1.0 baseline](#v010-baseline-full-major-mode-subset-2026-08-10) and [v0.2.0-in-progress baseline](#v020-in-progress-baseline-secondary-dominants--soprano-range-fix-2026-08-11) — establishing the "benchmark → failure decomposition → next feature → re-benchmark" loop this project now runs on (ROADMAP.md's "Verification-first phase").
+**Status**: the harness (`examples/chorale_benchmark.rs`) and the music21 extraction adapter (`tools/music21_chorale_extractor.py`) are implemented and validated three times now — [v0.1.0 baseline](#v010-baseline-full-major-mode-subset-2026-08-10) (144 chorales), [v0.2.0-in-progress baseline](#v020-in-progress-baseline-secondary-dominants--soprano-range-fix-2026-08-11) (same 144), and [v0.3.0-in-progress baseline](#v030-in-progress-baseline-soprano-rest-phrase-splitting-2026-08-11) (expanded to 182 chorales) — establishing the "benchmark → failure decomposition → next feature → re-benchmark" loop this project now runs on (ROADMAP.md's "Verification-first phase").
 
-Fixture format is v2 (duration-aware; v1 forced every note to a quarter, silently discarding real chorale rhythm — see `tasks/lessons.md`). Full spec is documented in `examples/chorale_benchmark.rs`'s module doc comment; `cargo doc --open` or read the file directly.
+Fixture format is v3 (rest-aware; v1 forced every note to a quarter, silently discarding real chorale rhythm; v2 couldn't represent a rest at all — see `tasks/lessons.md`). Full spec is documented in `examples/chorale_benchmark.rs`'s module doc comment; `cargo doc --open` or read the file directly.
 
 ## Purpose
 
@@ -74,6 +74,18 @@ Same 144-chorale corpus, re-extracted. Full results and per-chorale table: [`tas
 - **2 of 6** (Riemenschneider 40, 202) remain unfixed — a fixed soprano note forced into a formal chordal-seventh role that must resolve down by step, but the real melody leaps a third instead. Very likely Bach using the note as a decorative non-chord tone (passing tone), which mokuren has no model for at all — a real, larger feature gap (see `tasks/todo.md`), not attempted this pass.
 - **1 of 6** (Riemenschneider 234) turned out to be beam-width-recoverable (not structural) once the harness's own retry ladder was widened to 512.
 - Regression check re-verified at 94.4%: only 2 chorales (Riemenschneider 135, 230) now differ from v0.1.0's coverage, both confirmed beam-width-recoverable, same conclusion as before.
+
+## v0.3.0-in-progress baseline (soprano-rest phrase splitting, 2026-08-11)
+
+Re-extracted corpus (same music21 install/version) with the extractor's "soprano contains a rest" exclusion removed — a rest is now written into the fixture as a `REST` event instead of causing the whole chorale to be skipped. Full results and per-chorale table: [`tasks/baseline-v0.3.0-soprano-rest.md`](tasks/baseline-v0.3.0-soprano-rest.md). Summary:
+
+- `Melody`/`Composer::harmonize` are unchanged — still a plain, rest-free `Vec<Note>`. A new `MelodyLine` type (`src/melody.rs`) can hold `Note`/`Rest` events; its `phrases()` splits at each rest into independent contiguous note runs (a rest-free line always yields exactly one phrase, unchanged from before). The harness harmonizes each phrase independently and only counts a chorale as covered if *every* phrase harmonizes.
+- **Corpus grew from 144 to 182 attemptable chorales** (+38, +26%) — the "soprano rest" exclusion bucket (75 chorales in the v0.2.0 baseline) is gone; only genuine data gaps (unrepresentable duration, missing part, ATB gap) remain besides minor mode.
+- **Coverage: 94.5% (172/182)** — statistically the same rate as v0.2.0's 94.4% (136/144), but over a meaningfully larger population. **Zero regressions**: every one of the 136 previously-covered chorales is still covered (directly diffed, not assumed).
+- **10 failures**, same taxonomy as v0.2.0: 7 search-exhausted (wider beam recovers all 7, at widths 64–512 — includes the same 2 chorales, 135 and 230, flagged beam-width-recoverable in the v0.2.0 regression check), 3 rule-conflict (chordal seventh resolution) — the same unfixed non-chord-tone gap (Riemenschneider 40, 202), plus a **third instance newly visible** (Riemenschneider 132, previously excluded for a rest) — direct evidence the gap is a recurring pattern, not a one-off.
+- Voice-leading cost, cadence distribution (69.2% authentic vs 69.9%), and explanation completeness (`why()` 96.9% vs 98.0% — expected: new phrase-opening positions behave like position 0, README limitation #8) are all in the same range as v0.2.0. Runtime is *lower* despite the larger corpus (median ~1.4s vs 2.9s/chorale) — phrase-splitting means the search never has to carry a full-length chorale's beam in one pass; many chorales are now several short searches instead of one long one.
+
+Reproduce: `python3 tools/music21_chorale_extractor.py -o <dir>` then `cargo run --release --example chorale_benchmark -- <dir> --report tasks/baseline-v0.3.0-soprano-rest.md`.
 
 ## Phasing
 

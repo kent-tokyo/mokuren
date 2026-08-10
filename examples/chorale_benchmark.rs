@@ -13,26 +13,35 @@
 //!
 //!   cargo run --release --example chorale_benchmark -- path/to/chorales [--report path/to/report.md]
 //!
-//! Fixture format v2 — one `.chorale` file per piece. `soprano` carries
+//! Fixture format v3 — one `.chorale` file per piece. `soprano` carries
 //! real onset/pitch/duration (v1 forced every note to a quarter, which
-//! silently discarded real chorale rhythm — see tasks/lessons.md).
-//! `alto`/`tenor`/`bass` are reference pitches *sampled at each soprano
-//! onset*, not an independent onset grid: giving them their own
-//! offsets/durations would leak where Bach changed harmony into data a
-//! benchmark run is supposed to discover, not read off the input.
+//! silently discarded real chorale rhythm; v2 couldn't represent a rest
+//! at all — see tasks/lessons.md for both). `alto`/`tenor`/`bass` are
+//! reference pitches *sampled at each soprano note onset* (rests have no
+//! onset to sample), not an independent onset grid: giving them their
+//! own offsets/durations would leak where Bach changed harmony into data
+//! a benchmark run is supposed to discover, not read off the input.
 //!
 //! ```text
 //! name: <label>
 //! key: <tonic pitch class, e.g. C, F#, Bb>
 //! meter: <e.g. 4/4 — carried through, not yet consumed by any rule>
 //! soprano:
-//! <offset in quarter-note beats> <pitch> <duration, as a fraction of a whole note, e.g. 1/4>
-//! ...one line per note, offsets contiguous (no rests — mokuren's Melody can't represent one yet)
+//! <offset in quarter-note beats> <pitch or REST> <duration, as a fraction of a whole note, e.g. 1/4>
+//! ...one line per note or rest, offsets contiguous
 //!
-//! alto: <optional pitch list, one per soprano onset, e.g. A4 A4 F4 ...>
+//! alto: <optional pitch list, one per soprano *note* onset (rests excluded), e.g. A4 A4 F4 ...>
 //! tenor: <optional, same>
 //! bass: <optional, same>
 //! ```
+//!
+//! A soprano rest splits the piece into independent phrases (one per
+//! contiguous run of notes) via `mokuren::melody::MelodyLine::phrases`,
+//! matching how a breath rest actually functions in chorale writing — a
+//! phrase boundary, not a gap inside one harmonic idea. Each phrase is
+//! harmonized independently through the same `Composer::harmonize` a
+//! rest-free chorale uses; a chorale counts as "covered" only if *every*
+//! one of its phrases harmonizes (see `aggregate_by_chorale`).
 //!
 //! `examples/chorale_benchmark_fixtures/` has synthetic smoke-test
 //! fixtures (melodies written for this harness, not real chorales) —
@@ -48,7 +57,7 @@
 
 use mokuren::diagnostics::Diagnostics;
 use mokuren::generate::{CandidateGenerator, CandidateStatus};
-use mokuren::melody::{Duration as NoteDuration, Note, Position};
+use mokuren::melody::{Duration as NoteDuration, MelodyEvent, MelodyLine, Note, Position, Rest};
 use mokuren::pitch::Pitch;
 use mokuren::prelude::*;
 use mokuren::rules::RuleId;
@@ -57,10 +66,17 @@ use mokuren::voice::Voicing;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-// ---- Fixture parsing (v2, duration-aware) -----------------------------
+// ---- Fixture parsing (v3, rest-aware) -----------------------------
 
 struct ChoraleFixture {
+    /// Display name — the base chorale name, with a `[phrase i/n]` suffix
+    /// when `phrase.1 > 1`.
     name: String,
+    /// Chorale identity shared by every phrase split from the same file,
+    /// used to re-group phrase-level metrics for chorale-level coverage.
+    base_name: String,
+    /// (1-based index, total phrase count) within this chorale.
+    phrase: (usize, usize),
     key: Key,
     soprano: Melody,
     reference_alto: Option<Vec<Pitch>>,
@@ -89,10 +105,11 @@ fn parse_duration(s: &str) -> std::result::Result<NoteDuration, String> {
         .ok_or_else(|| format!("{s:?} ({beats} beats) has no representable Duration"))
 }
 
-/// One `offset pitch duration` line inside a `soprano:` block.
+/// One `offset pitch duration` line inside a `soprano:` block — `pitch`
+/// is the literal token `REST` for a rest.
 struct SopranoEvent {
     offset: f64,
-    note: Note,
+    event: MelodyEvent,
 }
 
 fn parse_soprano_event(line: &str) -> std::result::Result<SopranoEvent, String> {
@@ -105,22 +122,32 @@ fn parse_soprano_event(line: &str) -> std::result::Result<SopranoEvent, String> 
     let offset: f64 = offset
         .parse()
         .map_err(|_| format!("bad offset in {line:?}"))?;
-    let pitch: Pitch = pitch
-        .parse()
-        .map_err(|e| format!("bad pitch in {line:?}: {e}"))?;
     let duration = parse_duration(duration)?;
-    Ok(SopranoEvent {
-        offset,
-        note: Note::new(pitch, duration),
-    })
+    let event = if pitch == "REST" {
+        MelodyEvent::Rest(Rest { duration })
+    } else {
+        let pitch: Pitch = pitch
+            .parse()
+            .map_err(|e| format!("bad pitch in {line:?}: {e}"))?;
+        MelodyEvent::Note(Note::new(pitch, duration))
+    };
+    Ok(SopranoEvent { offset, event })
 }
 
-/// Builds a contiguous `Melody` from parsed events, verifying each
-/// event's offset lines up exactly with the previous one's end — a
-/// rest or overlap means this soprano line can't be represented by
-/// mokuren's `Melody` (a plain `Vec<Note>`, no rests) and is a data
-/// error worth surfacing rather than silently misaligning.
-fn build_soprano_melody(events: &[SopranoEvent]) -> std::result::Result<Melody, String> {
+fn event_duration(event: &MelodyEvent) -> NoteDuration {
+    match event {
+        MelodyEvent::Note(n) => n.duration,
+        MelodyEvent::Rest(r) => r.duration,
+    }
+}
+
+/// Builds a contiguous `MelodyLine` from parsed events, verifying each
+/// event's offset lines up exactly with the previous one's end — an
+/// overlap or out-of-order line is a data error worth surfacing rather
+/// than silently misaligning. A rest is a legitimate event here (unlike
+/// v2's fixture format); it becomes a phrase boundary once `.phrases()`
+/// splits this line, not a parse error.
+fn build_soprano_line(events: &[SopranoEvent]) -> std::result::Result<MelodyLine, String> {
     if events.is_empty() {
         return Err("soprano block has no events".to_string());
     }
@@ -128,16 +155,16 @@ fn build_soprano_melody(events: &[SopranoEvent]) -> std::result::Result<Melody, 
     for event in events {
         if (event.offset - expected_offset).abs() > 1e-6 {
             return Err(format!(
-                "soprano offset {} doesn't follow the previous note's end ({expected_offset}) — a rest, overlap, or out-of-order line, none of which mokuren's Melody can represent",
+                "soprano offset {} doesn't follow the previous event's end ({expected_offset}) — an overlap or out-of-order line",
                 event.offset
             ));
         }
-        expected_offset += event.note.duration.beats();
+        expected_offset += event_duration(&event.event).beats();
     }
-    Ok(Melody::new(events.iter().map(|e| e.note).collect()))
+    Ok(MelodyLine::new(events.iter().map(|e| e.event).collect()))
 }
 
-fn parse_chorale_fixture(text: &str) -> std::result::Result<ChoraleFixture, String> {
+fn parse_chorale_fixture(text: &str) -> std::result::Result<Vec<ChoraleFixture>, String> {
     let (mut name, mut key, mut meter) = (None, None, None);
     let (mut alto, mut tenor, mut bass) = (None, None, None);
     let mut soprano_events: Vec<SopranoEvent> = Vec::new();
@@ -187,14 +214,50 @@ fn parse_chorale_fixture(text: &str) -> std::result::Result<ChoraleFixture, Stri
     }
 
     let _meter = meter; // carried through for future use; not consumed by any rule yet.
-    Ok(ChoraleFixture {
-        name: name.ok_or("missing `name:`")?,
-        key: key.ok_or("missing `key:`")?,
-        soprano: build_soprano_melody(&soprano_events)?,
-        reference_alto: alto,
-        reference_tenor: tenor,
-        reference_bass: bass,
-    })
+    let base_name = name.ok_or("missing `name:`")?;
+    let key = key.ok_or("missing `key:`")?;
+    let line = build_soprano_line(&soprano_events)?;
+    let phrases = line.phrases();
+    if phrases.is_empty() {
+        return Err("soprano block has no notes (only rests)".to_string());
+    }
+
+    // Reference alto/tenor/bass are sampled once per soprano *note*
+    // (rests have no onset to sample against — see the fixture-format
+    // doc comment), so they line up with the concatenation of every
+    // phrase's notes in order; slice out each phrase's share by count.
+    let mut alto_cursor = 0;
+    let mut tenor_cursor = 0;
+    let mut bass_cursor = 0;
+    let phrase_count = phrases.len();
+    let mut fixtures = Vec::with_capacity(phrase_count);
+    for (i, phrase) in phrases.into_iter().enumerate() {
+        let n = phrase.len();
+        let name = if phrase_count == 1 {
+            base_name.clone()
+        } else {
+            format!("{base_name} [phrase {}/{phrase_count}]", i + 1)
+        };
+        let slice = |cursor: &mut usize, reference: &Option<Vec<Pitch>>| {
+            reference.as_ref().map(|v| {
+                let start = *cursor;
+                let end = (start + n).min(v.len());
+                *cursor = end;
+                v[start..end].to_vec()
+            })
+        };
+        fixtures.push(ChoraleFixture {
+            name,
+            base_name: base_name.clone(),
+            phrase: (i + 1, phrase_count),
+            key,
+            soprano: phrase,
+            reference_alto: slice(&mut alto_cursor, &alto),
+            reference_tenor: slice(&mut tenor_cursor, &tenor),
+            reference_bass: slice(&mut bass_cursor, &bass),
+        });
+    }
+    Ok(fixtures)
 }
 
 // ---- Failure classification --------------------------------------------
@@ -463,7 +526,8 @@ fn classify_failure(fixture: &ChoraleFixture) -> FailureCategory {
 // ---- Measurement ---------------------------------------------------------
 
 struct ChoraleMetrics {
-    name: String,
+    base_name: String,
+    phrase: (usize, usize),
     covered: bool,
     positions: usize,
     hard_violations: usize,
@@ -474,17 +538,21 @@ struct ChoraleMetrics {
     positions_with_reasons: usize,
     why_not_attempts: usize,
     why_not_successes: usize,
-    note_match_fraction: Option<f64>,
+    note_matched: usize,
+    note_total: usize,
     failure_category: Option<FailureCategory>,
 }
 
-fn note_match(result: &HarmonizationResult, fixture: &ChoraleFixture) -> Option<f64> {
+/// Raw (matched, total) reference-pitch-class agreement counts, not a
+/// precomputed fraction — chorale-level aggregation needs to pool these
+/// across phrases before dividing, not average already-divided fractions.
+fn note_match(result: &HarmonizationResult, fixture: &ChoraleFixture) -> (usize, usize) {
     let (Some(alto), Some(tenor), Some(bass)) = (
         &fixture.reference_alto,
         &fixture.reference_tenor,
         &fixture.reference_bass,
     ) else {
-        return None;
+        return (0, 0);
     };
     let mut matched = 0usize;
     let mut total = 0usize;
@@ -503,7 +571,7 @@ fn note_match(result: &HarmonizationResult, fixture: &ChoraleFixture) -> Option<
             }
         }
     }
-    (total > 0).then(|| matched as f64 / total as f64)
+    (matched, total)
 }
 
 fn measure(fixture: &ChoraleFixture) -> ChoraleMetrics {
@@ -517,7 +585,8 @@ fn measure(fixture: &ChoraleFixture) -> ChoraleMetrics {
 
     let Ok(result) = outcome else {
         return ChoraleMetrics {
-            name: fixture.name.clone(),
+            base_name: fixture.base_name.clone(),
+            phrase: fixture.phrase,
             covered: false,
             positions: fixture.soprano.len(),
             hard_violations: 0,
@@ -528,7 +597,8 @@ fn measure(fixture: &ChoraleFixture) -> ChoraleMetrics {
             positions_with_reasons: 0,
             why_not_attempts: 0,
             why_not_successes: 0,
-            note_match_fraction: None,
+            note_matched: 0,
+            note_total: 0,
             failure_category: Some(classify_failure(fixture)),
         };
     };
@@ -573,10 +643,11 @@ fn measure(fixture: &ChoraleFixture) -> ChoraleMetrics {
         }
     }
 
-    let note_match_fraction = note_match(&result, fixture);
+    let (note_matched, note_total) = note_match(&result, fixture);
 
     ChoraleMetrics {
-        name: fixture.name.clone(),
+        base_name: fixture.base_name.clone(),
+        phrase: fixture.phrase,
         covered: true,
         positions: result.decisions.len(),
         hard_violations,
@@ -587,7 +658,8 @@ fn measure(fixture: &ChoraleFixture) -> ChoraleMetrics {
         positions_with_reasons,
         why_not_attempts,
         why_not_successes,
-        note_match_fraction,
+        note_matched,
+        note_total,
         failure_category: None,
     }
 }
@@ -678,8 +750,8 @@ fn skip_reason_breakdown(manifest_text: &str) -> BTreeMap<String, usize> {
         };
         let bucket = if reason.contains("mode is") {
             "minor mode"
-        } else if reason.contains("rest") {
-            "soprano rest (Melody can't represent one)"
+        } else if reason.contains("nothing but rests") {
+            "soprano is nothing but rests"
         } else if reason.contains("unrepresentable duration") {
             "unrepresentable duration"
         } else if reason.contains("missing") {
@@ -716,16 +788,100 @@ fn gather_provenance(dir: &str) -> Provenance {
     }
 }
 
+// ---- Chorale-level aggregation ------------------------------------------
+
+/// One chorale's metrics, pooled across every phrase a soprano rest
+/// split it into (one phrase, the common case, for a rest-free chorale).
+/// A chorale counts as `covered` only if *every* phrase harmonized —
+/// looser bookkeeping (e.g. "covered if any phrase worked") would make
+/// this number silently incomparable to the pre-rest-support baselines,
+/// which measured one melody per chorale.
+struct ChoraleAggregate<'a> {
+    name: &'a str,
+    phrase_count: usize,
+    covered: bool,
+    positions: usize,
+    hard_violations: usize,
+    final_cadence: Option<Cadence>,
+    ends_on_tonic_function: Option<bool>,
+    voice_leading_cost_total: u32,
+    runtime: std::time::Duration,
+    positions_with_reasons: usize,
+    why_not_attempts: usize,
+    why_not_successes: usize,
+    note_matched: usize,
+    note_total: usize,
+    /// The first failing phrase's category and (index, total), if any.
+    failure: Option<(FailureCategory, (usize, usize))>,
+}
+
+/// Groups phrase-level metrics by chorale. Relies on every phrase of one
+/// chorale being adjacent in `metrics` — true because `parse_chorale_fixture`
+/// returns all of a file's phrases together and `main` never reorders
+/// `fixtures` before calling `measure`.
+fn aggregate_by_chorale(metrics: &[ChoraleMetrics]) -> Vec<ChoraleAggregate<'_>> {
+    let mut aggregates: Vec<ChoraleAggregate> = Vec::new();
+    for m in metrics {
+        let is_new = match aggregates.last() {
+            Some(last) => last.name != m.base_name,
+            None => true,
+        };
+        if is_new {
+            aggregates.push(ChoraleAggregate {
+                name: &m.base_name,
+                phrase_count: 0,
+                covered: true,
+                positions: 0,
+                hard_violations: 0,
+                final_cadence: None,
+                ends_on_tonic_function: None,
+                voice_leading_cost_total: 0,
+                runtime: std::time::Duration::ZERO,
+                positions_with_reasons: 0,
+                why_not_attempts: 0,
+                why_not_successes: 0,
+                note_matched: 0,
+                note_total: 0,
+                failure: None,
+            });
+        }
+        let agg = aggregates.last_mut().unwrap();
+        agg.phrase_count += 1;
+        agg.covered &= m.covered;
+        agg.positions += m.positions;
+        agg.hard_violations += m.hard_violations;
+        agg.voice_leading_cost_total += m.voice_leading_cost_total;
+        agg.runtime += m.runtime;
+        agg.positions_with_reasons += m.positions_with_reasons;
+        agg.why_not_attempts += m.why_not_attempts;
+        agg.why_not_successes += m.why_not_successes;
+        agg.note_matched += m.note_matched;
+        agg.note_total += m.note_total;
+        if m.covered {
+            // The chorale's audible ending is its *last* phrase's ending
+            // — later phrases overwrite earlier ones as they're folded in.
+            agg.final_cadence = m.final_cadence;
+            agg.ends_on_tonic_function = m.ends_on_tonic_function;
+        }
+        if !m.covered && agg.failure.is_none() {
+            agg.failure = Some((m.failure_category.clone().unwrap(), m.phrase));
+        }
+    }
+    aggregates
+}
+
 // ---- Report ------------------------------------------------------------
 
 fn build_report(metrics: &[ChoraleMetrics], provenance: &Provenance) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
 
-    let total = metrics.len();
-    let covered = metrics.iter().filter(|m| m.covered).count();
-    let covered_metrics: Vec<&ChoraleMetrics> = metrics.iter().filter(|m| m.covered).collect();
-    let failed_metrics: Vec<&ChoraleMetrics> = metrics.iter().filter(|m| !m.covered).collect();
+    let aggregates = aggregate_by_chorale(metrics);
+    let total = aggregates.len();
+    let covered = aggregates.iter().filter(|a| a.covered).count();
+    let covered_metrics: Vec<&ChoraleAggregate> = aggregates.iter().filter(|a| a.covered).collect();
+    let failed_metrics: Vec<&ChoraleAggregate> = aggregates.iter().filter(|a| !a.covered).collect();
+    let multi_phrase_chorales = aggregates.iter().filter(|a| a.phrase_count > 1).count();
 
     let _ = writeln!(out, "# Chorale benchmark report\n");
     let _ = writeln!(out, "## Provenance\n");
@@ -763,7 +919,11 @@ fn build_report(metrics: &[ChoraleMetrics], provenance: &Provenance) -> String {
             }
         }
     }
-    let _ = writeln!(out, "- fixtures measured here: {total}");
+    let _ = writeln!(
+        out,
+        "- chorales measured here: {total} ({} phrase(s) total, after splitting at rests)",
+        metrics.len()
+    );
     let _ = writeln!(
         out,
         "- standard beam width: {STANDARD_WIDTH} (retry widths for failure classification: {RETRY_WIDTHS:?})\n"
@@ -782,11 +942,19 @@ fn build_report(metrics: &[ChoraleMetrics], provenance: &Provenance) -> String {
         100.0 * (total - covered) as f64 / total.max(1) as f64
     );
 
+    if multi_phrase_chorales > 0 {
+        let _ = writeln!(
+            out,
+            "- {multi_phrase_chorales} chorale(s) had a soprano rest and were split into multiple phrases (harmonized independently, each via the same `Composer::harmonize` a rest-free chorale uses); \"covered\" above requires *every* phrase of a chorale to harmonize, so this is comparable to the pre-rest-support baselines, not a looser per-phrase number.\n"
+        );
+    }
+
     if !failed_metrics.is_empty() {
         let _ = writeln!(out, "## Failure taxonomy (not lumped into one bucket)\n");
         let mut categories: BTreeMap<String, usize> = BTreeMap::new();
-        for m in &failed_metrics {
-            let label = match m.failure_category.as_ref().unwrap() {
+        for a in &failed_metrics {
+            let (category, _) = a.failure.as_ref().unwrap();
+            let label = match category {
                 FailureCategory::ChromaticSoprano => "chromatic soprano unsupported".to_string(),
                 FailureCategory::SearchExhausted { .. } => {
                     "search exhausted (wider beam works)".to_string()
@@ -818,7 +986,7 @@ fn build_report(metrics: &[ChoraleMetrics], provenance: &Provenance) -> String {
         for &width in &RETRY_WIDTHS {
             let newly_working = failed_metrics
                 .iter()
-                .filter(|m| matches!(m.failure_category, Some(FailureCategory::SearchExhausted { first_working_width }) if first_working_width == width))
+                .filter(|a| matches!(&a.failure, Some((FailureCategory::SearchExhausted { first_working_width }, _)) if *first_working_width == width))
                 .count();
             cumulative += newly_working;
             let _ = writeln!(
@@ -831,19 +999,19 @@ fn build_report(metrics: &[ChoraleMetrics], provenance: &Provenance) -> String {
     }
 
     let _ = writeln!(out, "## Hard-rule violations\n");
-    let hard_violations: usize = covered_metrics.iter().map(|m| m.hard_violations).sum();
+    let hard_violations: usize = covered_metrics.iter().map(|a| a.hard_violations).sum();
     let _ = writeln!(
         out,
         "{hard_violations} (should always be 0 by construction — a nonzero count is a bug, not a quality signal)\n"
     );
 
     if !covered_metrics.is_empty() {
-        let total_positions: usize = covered_metrics.iter().map(|m| m.positions).sum();
+        let total_positions: usize = covered_metrics.iter().map(|a| a.positions).sum();
 
         let _ = writeln!(out, "## Voice-leading cost\n");
         let mut vlc_per_position: Vec<f64> = covered_metrics
             .iter()
-            .map(|m| m.voice_leading_cost_total as f64 / m.positions.max(1) as f64)
+            .map(|a| a.voice_leading_cost_total as f64 / a.positions.max(1) as f64)
             .collect();
         let (median, p90, p95) = summarize(&mut vlc_per_position);
         let _ = writeln!(
@@ -854,26 +1022,26 @@ fn build_report(metrics: &[ChoraleMetrics], provenance: &Provenance) -> String {
         let _ = writeln!(out, "## Runtime\n");
         let mut runtime_ms: Vec<f64> = covered_metrics
             .iter()
-            .map(|m| m.runtime.as_secs_f64() * 1000.0)
+            .map(|a| a.runtime.as_secs_f64() * 1000.0)
             .collect();
         let (median, p90, p95) = summarize(&mut runtime_ms);
         let _ = writeln!(
             out,
-            "Per chorale (ms): median {median:.1}, p90 {p90:.1}, p95 {p95:.1}\n"
+            "Per chorale (ms, summed across phrases): median {median:.1}, p90 {p90:.1}, p95 {p95:.1}\n"
         );
 
         let _ = writeln!(out, "## Explanation completeness\n");
         let reasons: usize = covered_metrics
             .iter()
-            .map(|m| m.positions_with_reasons)
+            .map(|a| a.positions_with_reasons)
             .sum();
         let _ = writeln!(
             out,
             "- why() coverage: {:.1}% of positions have at least one Reason",
             100.0 * reasons as f64 / total_positions.max(1) as f64
         );
-        let why_not_attempts: usize = covered_metrics.iter().map(|m| m.why_not_attempts).sum();
-        let why_not_successes: usize = covered_metrics.iter().map(|m| m.why_not_successes).sum();
+        let why_not_attempts: usize = covered_metrics.iter().map(|a| a.why_not_attempts).sum();
+        let why_not_successes: usize = covered_metrics.iter().map(|a| a.why_not_successes).sum();
         let _ = writeln!(
             out,
             "- why_not() success: {why_not_successes}/{why_not_attempts} ({:.1}%) of positions with a valid alternative\n",
@@ -881,9 +1049,13 @@ fn build_report(metrics: &[ChoraleMetrics], provenance: &Provenance) -> String {
         );
 
         let _ = writeln!(out, "## Cadence\n");
+        let _ = writeln!(
+            out,
+            "(the chorale's *last phrase*'s cadence — for a multi-phrase chorale this is the piece's actual final cadence, not an average across phrase-internal cadences)\n"
+        );
         let mut cadences: BTreeMap<String, usize> = BTreeMap::new();
-        for m in &covered_metrics {
-            let label = m
+        for a in &covered_metrics {
+            let label = a
                 .final_cadence
                 .map(|c| c.to_string())
                 .unwrap_or_else(|| "none".to_string());
@@ -899,7 +1071,7 @@ fn build_report(metrics: &[ChoraleMetrics], provenance: &Provenance) -> String {
         }
         let tonic_endings = covered_metrics
             .iter()
-            .filter(|m| m.ends_on_tonic_function == Some(true))
+            .filter(|a| a.ends_on_tonic_function == Some(true))
             .count();
         let _ = writeln!(
             out,
@@ -908,21 +1080,18 @@ fn build_report(metrics: &[ChoraleMetrics], provenance: &Provenance) -> String {
             100.0 * tonic_endings as f64 / covered_metrics.len().max(1) as f64
         );
 
-        let note_matches: Vec<f64> = covered_metrics
-            .iter()
-            .filter_map(|m| m.note_match_fraction)
-            .collect();
-        if !note_matches.is_empty() {
-            let avg = note_matches.iter().sum::<f64>() / note_matches.len() as f64;
+        let note_total: usize = covered_metrics.iter().map(|a| a.note_total).sum();
+        if note_total > 0 {
+            let note_matched: usize = covered_metrics.iter().map(|a| a.note_matched).sum();
+            let with_reference = covered_metrics.iter().filter(|a| a.note_total > 0).count();
             let _ = writeln!(
                 out,
                 "## Original-note match (secondary, diagnostic only — see BENCHMARK.md's non-goal)\n"
             );
             let _ = writeln!(
                 out,
-                "{:.1}% avg over {} fixture(s) with a reference ATB\n",
-                avg * 100.0,
-                note_matches.len()
+                "{:.1}% (pooled across phrases) over {with_reference} fixture(s) with a reference ATB\n",
+                100.0 * note_matched as f64 / note_total as f64
             );
         }
     }
@@ -930,29 +1099,30 @@ fn build_report(metrics: &[ChoraleMetrics], provenance: &Provenance) -> String {
     let _ = writeln!(out, "## Per-chorale\n");
     let _ = writeln!(
         out,
-        "| Chorale | Result | Voice-leading cost | Cadence | Runtime (ms) |"
+        "| Chorale | Result | Phrases | Voice-leading cost | Cadence | Runtime (ms) |"
     );
-    let _ = writeln!(out, "|---|---|---|---|---|");
-    for m in metrics {
-        if m.covered {
-            let cadence = m
+    let _ = writeln!(out, "|---|---|---|---|---|---|");
+    for a in &aggregates {
+        if a.covered {
+            let cadence = a
                 .final_cadence
                 .map(|c| c.to_string())
                 .unwrap_or_else(|| "none".to_string());
             let _ = writeln!(
                 out,
-                "| {} | covered | {} | {} | {:.1} |",
-                m.name,
-                m.voice_leading_cost_total,
+                "| {} | covered | {} | {} | {} | {:.1} |",
+                a.name,
+                a.phrase_count,
+                a.voice_leading_cost_total,
                 cadence,
-                m.runtime.as_secs_f64() * 1000.0
+                a.runtime.as_secs_f64() * 1000.0
             );
         } else {
+            let (category, (phrase_index, phrase_count)) = a.failure.as_ref().unwrap();
             let _ = writeln!(
                 out,
-                "| {} | NOT COVERED | — | — | — ({}) |",
-                m.name,
-                m.failure_category.as_ref().unwrap()
+                "| {} | NOT COVERED | {phrase_count} | — | — | — (phrase {phrase_index}/{phrase_count}: {category}) |",
+                a.name
             );
         }
     }
@@ -1079,7 +1249,7 @@ fn main() {
             }
         };
         match parse_chorale_fixture(&text) {
-            Ok(fixture) => fixtures.push(fixture),
+            Ok(phrases) => fixtures.extend(phrases),
             Err(e) => eprintln!("skipping {}: {e}", path.display()),
         }
     }
