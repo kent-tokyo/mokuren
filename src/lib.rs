@@ -4,6 +4,23 @@
 //! v0.1's vertical slice: given a soprano melody, search Common Practice
 //! SATB harmonizations and explain *why* each chord was chosen and *why
 //! not* the alternatives. See `PLAN.md` for scope and phasing.
+//!
+//! ```
+//! use mokuren::prelude::*;
+//!
+//! let melody = Melody::parse("C4 C4 G4 G4 A4 A4 G4")?;
+//!
+//! let result = Composer::new()
+//!     .key(Key::C_MAJOR)
+//!     .style(Style::CommonPractice)
+//!     .voices(Voices::SATB)
+//!     .search(BeamSearch::new().width(8))
+//!     .harmonize(melody)?;
+//!
+//! // Every position resolved to a chord that passed every hard rule.
+//! assert!(result.decisions.iter().all(|d| d.selected_candidate().is_valid()));
+//! # Ok::<(), MokurenError>(())
+//! ```
 
 pub mod chord;
 pub mod compose;
