@@ -312,9 +312,15 @@ impl Rule for LeadingToneDoublingRule {
 }
 
 /// A voice sitting on the leading tone of a dominant-function chord must
-/// resolve up by step when the next chord is tonic-function. v0.1 applies
-/// this strictly, without the traditional inner-voice exception (see
-/// PLAN.md).
+/// resolve to the tonic-function chord that follows. Outer voices
+/// (soprano, bass) must resolve up by step, strictly — the ear tracks
+/// the leading tone's pull most closely there. Inner voices (alto,
+/// tenor) get the standard textbook exception: they may instead skip
+/// down by step or third to complete the destination chord, which is
+/// how a complete tonic triad is normally reached at all when every
+/// other voice's target is already spoken for (v0.1 applies this one
+/// exception; a chordal seventh, by contrast, resolves down by step in
+/// every voice — see `ChordalSeventhResolutionRule`).
 pub struct LeadingToneResolutionRule;
 impl Rule for LeadingToneResolutionRule {
     fn id(&self) -> RuleId {
@@ -340,9 +346,16 @@ impl Rule for LeadingToneResolutionRule {
                 continue;
             }
             let curr_pitch = ctx.current.pitch(voice);
-            let resolved_up_by_step = curr_pitch.midi() - prev_pitch.midi() == 1
-                && curr_pitch.pitch_class.is_enharmonic_to(&tonic);
-            if !resolved_up_by_step {
+            let motion = curr_pitch.midi() - prev_pitch.midi();
+            let resolved_up_by_step =
+                motion == 1 && curr_pitch.pitch_class.is_enharmonic_to(&tonic);
+            let is_inner_voice = matches!(voice, VoicePart::Alto | VoicePart::Tenor);
+            // Step (major or minor 2nd) or third (major or minor) down —
+            // e.g. the textbook B -> G a third below.
+            let skipped_down_to_complete_chord = is_inner_voice
+                && (-4..=-1).contains(&motion)
+                && ctx.chord.contains_pitch_class(curr_pitch.pitch_class);
+            if !resolved_up_by_step && !skipped_down_to_complete_chord {
                 return RuleResult::violation(self.id(), self.severity());
             }
         }
@@ -759,22 +772,24 @@ mod tests {
     }
 
     #[test]
-    fn leading_tone_must_resolve_up_after_dominant() {
+    fn leading_tone_in_outer_voice_must_resolve_up() {
         let key = Key::C_MAJOR;
         let prev_chord = RomanNumeral::V.to_chord(&key);
         let chord = RomanNumeral::I.to_chord(&key);
-        // Previous: tenor holds B3 (leading tone).
+        // Previous: soprano holds B4 (leading tone).
         let prev = v(
-            (PitchClass::G, 4),
+            (PitchClass::B, 4),
             (PitchClass::D, 4),
-            (PitchClass::B, 3),
+            (PitchClass::G, 3),
             (PitchClass::G, 2),
         );
-        // Tenor leaps down to G3 instead of resolving up to C4: violation.
+        // Soprano skips down to G4 (a chord tone, and the same shape an
+        // inner voice is allowed) instead of resolving up: still a
+        // violation, because soprano is an outer voice.
         let bad_curr = v(
-            (PitchClass::C, 5),
+            (PitchClass::G, 4),
             (PitchClass::C, 4),
-            (PitchClass::G, 3),
+            (PitchClass::E, 3),
             (PitchClass::C, 3),
         );
         let result = LeadingToneResolutionRule.evaluate(&ctx(
@@ -789,11 +804,11 @@ mod tests {
         ));
         assert_eq!(result.status, RuleStatus::Violation);
 
-        // Tenor resolves up to C4: passes.
+        // Soprano resolves up to C5: passes.
         let good_curr = v(
             (PitchClass::C, 5),
             (PitchClass::E, 4),
-            (PitchClass::C, 4),
+            (PitchClass::G, 3),
             (PitchClass::C, 3),
         );
         let result = LeadingToneResolutionRule.evaluate(&ctx(
@@ -807,6 +822,78 @@ mod tests {
             false,
         ));
         assert_eq!(result.status, RuleStatus::Pass);
+    }
+
+    #[test]
+    fn leading_tone_in_inner_voice_may_skip_down_to_complete_the_chord() {
+        let key = Key::C_MAJOR;
+        let prev_chord = RomanNumeral::V.to_chord(&key);
+        let chord = RomanNumeral::I.to_chord(&key);
+        // Previous: tenor holds B3 (leading tone).
+        let prev = v(
+            (PitchClass::G, 4),
+            (PitchClass::D, 4),
+            (PitchClass::B, 3),
+            (PitchClass::G, 2),
+        );
+        // Tenor skips down a third to G3 — the textbook inner-voice
+        // exception, needed to complete the tonic triad — passes.
+        let skips_down_to_chord_tone = v(
+            (PitchClass::C, 5),
+            (PitchClass::C, 4),
+            (PitchClass::G, 3),
+            (PitchClass::C, 3),
+        );
+        let result = LeadingToneResolutionRule.evaluate(&ctx(
+            &key,
+            Some(&prev),
+            Some(&prev_chord),
+            Some(&RomanNumeral::V),
+            &skips_down_to_chord_tone,
+            &chord,
+            &RomanNumeral::I,
+            false,
+        ));
+        assert_eq!(result.status, RuleStatus::Pass);
+
+        // Tenor resolves up to C4: also passes.
+        let resolves_up = v(
+            (PitchClass::C, 5),
+            (PitchClass::E, 4),
+            (PitchClass::C, 4),
+            (PitchClass::C, 3),
+        );
+        let result = LeadingToneResolutionRule.evaluate(&ctx(
+            &key,
+            Some(&prev),
+            Some(&prev_chord),
+            Some(&RomanNumeral::V),
+            &resolves_up,
+            &chord,
+            &RomanNumeral::I,
+            false,
+        ));
+        assert_eq!(result.status, RuleStatus::Pass);
+
+        // Tenor leaps down to F3 — not a chord tone of I at all, and
+        // further than the allowed step/third: still a violation.
+        let leaps_to_non_chord_tone = v(
+            (PitchClass::C, 5),
+            (PitchClass::C, 4),
+            (PitchClass::F, 3),
+            (PitchClass::C, 3),
+        );
+        let result = LeadingToneResolutionRule.evaluate(&ctx(
+            &key,
+            Some(&prev),
+            Some(&prev_chord),
+            Some(&RomanNumeral::V),
+            &leaps_to_non_chord_tone,
+            &chord,
+            &RomanNumeral::I,
+            false,
+        ));
+        assert_eq!(result.status, RuleStatus::Violation);
     }
 
     #[test]

@@ -53,6 +53,17 @@ opening a second plan doc):
   the representable-accidental-range limitation the scoping works around.
 - `tests/golden.rs`: hand-verified small SATB passages (section 22
   "Golden tests").
+- `benches/harmonize.rs` (Criterion, spec section 23): candidate
+  generation, beam-width scaling, melody-length scaling. Moved up from
+  the original v0.5 slot in ROADMAP.md since it was cheap and unblocks
+  reporting real (rather than claimed) numbers in README.
+- Leading-tone inner-voice exception: `LeadingToneResolutionRule` now
+  lets alto/tenor skip down a step or third to complete the chord
+  instead of resolving up, matching the standard textbook relaxation.
+  Outer voices (soprano/bass) are unchanged (strict). Narrower than
+  real pedagogy still — see README "Current limitations" #7 — the
+  exception is unconditional here rather than "only when resolving up
+  would leave the chord incomplete."
 
 ## Phases (AGENTS.md section 29, adapted to depth-first order)
 

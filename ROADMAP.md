@@ -32,10 +32,11 @@ None of these expose "why not `vi`, and by how much did it lose" as a first-clas
 SATB harmonization of a fixed major-key soprano melody, Common Practice rules, beam search, `explain()`/`why()`/`why_not()`/`diagnostics()` backed by real evaluated candidates. See `PLAN.md` and the README's [Current limitations](README.md#current-limitations) for exactly what's real today versus deferred.
 
 ### v0.2 — close the correctness gaps v0.1 shipped with
-- Inner-voice exception for leading-tone / chordal-seventh resolution (README limitation #1) — currently the single biggest skew in the rule set.
-- True cadential-6/4 detection with lookahead, replacing the backward-only pedal/passing heuristic (README limitation #2).
+- ~~Inner-voice exception for leading-tone resolution~~ — done: `LeadingToneResolutionRule` now lets alto/tenor skip down a step or third to complete the chord. Still narrower than real pedagogy (unconditional rather than "only when resolving up would leave the chord incomplete") — see README limitation #7. `ChordalSeventhResolutionRule` intentionally has no such exception (real practice mostly agrees).
+- True cadential-6/4 detection with lookahead, replacing the backward-only pedal/passing heuristic (README limitation #1).
 - Minor mode (natural/harmonic/melodic) — AGENTS.md section 5 leaves this as "evaluate the need"; a minor-key melody is the forcing function.
-- `proptest` coverage for the invariants `PLAN.md` deferred (interval inversion, transpose round-trips, pitch-class normalization).
+- ~~`proptest` coverage~~ — done: `tests/properties.rs` (pitch-class normalization, interval symmetry, chord-spelling round trip, key scale-degree round trip).
+- ~~`criterion` benchmarks~~ — done ahead of schedule (moved up from v0.5, since it was cheap and unblocks honest performance language elsewhere): `benches/harmonize.rs`, real numbers in README limitation #8. External validation against a chorale corpus is still v0.5 work — a benchmark harness isn't the same as a correctness/quality baseline.
 
 ### v0.3 — widen the harmonic vocabulary
 - Secondary dominants (V/V, V7/ii, ...), modal mixture, Neapolitan, augmented sixths (AGENTS.md section 20) — the `RomanNumeral`/`HarmonicFunction` data model was built to extend into these without a redesign (section 5).
@@ -48,7 +49,7 @@ SATB harmonization of a fixed major-key soprano melody, Common Practice rules, b
 
 ### v0.5 — external validation
 - Chorale-dataset benchmark per AGENTS.md section 24: strip alto/tenor/bass from a known chorale, harmonize the soprano, and score on rule-violation rate, voice-leading quality, cadence correctness, and solution diversity — explicitly *not* on matching the original note-for-note (section 24's own caveat).
-- First `criterion` benchmarks (candidate generation/sec, search nodes/sec, beam-width scaling) — only after these exist does any speed claim belong in the README.
+- Track `criterion` numbers over time (regression detection) now that the harness exists (moved up to v0.2) — only after that tracking exists does a *speed* claim (as opposed to the one-off numbers already in the README) belong there.
 
 ### v1.0 candidate — counterpoint and melody as first-class targets
 - Species counterpoint (two-part, then multi-voice) — a genuinely different search problem from SATB harmonization, sharing the `Rule`/`SearchStrategy` architecture rather than the concrete rules.
