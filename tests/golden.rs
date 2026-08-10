@@ -40,8 +40,8 @@ fn hard_violations(
     roman_numeral: &RomanNumeral,
     is_final_position: bool,
 ) -> Vec<RuleId> {
-    let chord = roman_numeral.to_chord(key);
-    let previous_chord: Option<Chord> = previous_roman_numeral.map(|rn| rn.to_chord(key));
+    let chord = roman_numeral.to_chord(key).unwrap();
+    let previous_chord: Option<Chord> = previous_roman_numeral.and_then(|rn| rn.to_chord(key));
     let ctx = RuleContext {
         key,
         previous,
@@ -155,7 +155,7 @@ fn out_of_range_soprano_is_rejected() {
     use PitchClass as Pc;
     let key = Key::C_MAJOR;
 
-    // C6 is above the default soprano ceiling (G5).
+    // C6 is above the default soprano ceiling (A5).
     let current = voicing((Pc::C, 6), (Pc::E, 4), (Pc::G, 3), (Pc::C, 3));
 
     let violations = hard_violations(&key, None, None, &current, &RomanNumeral::I, false);

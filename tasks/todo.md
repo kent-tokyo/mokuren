@@ -25,28 +25,51 @@ scope and phasing — this is the flat, scannable version.
   attemptable, 73 succeeded (50.7% coverage), 0 hard-rule violations.
   Full results, failure taxonomy, and per-chorale table:
   `tasks/baseline-v0.1.0.md`. Summary and reproduction steps: BENCHMARK.md.
-- **Next, per the baseline's own data** (ROADMAP.md "Verification-first
-  phase" was reordered by this): secondary dominants / chromatic
-  non-chord tones (88.7% of failures, 63/144 fixtures) before minor mode,
-  and the cadential-6/4 lookahead moved *down* the list — 0 of the 144
-  failures traced to that rule. Also newly surfaced, not on the original
-  list: 75/371 chorales (20.2%) were excluded because `Melody` can't
-  represent a soprano rest — worth scoping as its own item (roadmap
-  phase 4), comparable in size to minor mode's exclusion count (143/371,
-  38.5%).
+- ~~Secondary dominants (roadmap phase 2)~~ — implemented: `RomanNumeral::applied_to`,
+  the standard V/x, V7/x set for x in {ii, iii, IV, V, vi}, and
+  `SecondaryDominantResolutionRule` (hard rule requiring correct
+  resolution). See PLAN.md and `tasks/lessons.md` for the scoring trap
+  found and fixed along the way (a naive reward broke the pinned v0.1
+  spine-melody demo, which has no chromatic notes at all).
+- ~~Investigate the "voice range" rule-conflict cluster (roadmap phase 5)~~
+  — root-caused and fixed: all 5 failing chorales had a soprano note on
+  A5, above the old default soprano ceiling (G5); widened to A5
+  (`src/voice.rs`). See ROADMAP.md phase 5 for detail.
+- ~~Re-run and verify the full baseline against secondary dominants +
+  soprano-range fix~~ — done 2026-08-11: coverage 50.7% → 91.7%
+  (73 → 132/144), 0 hard-rule violations maintained. Regression-checked
+  per-chorale against `tasks/baseline-v0.1.0.md`: 4 chorales that used to
+  succeed at width 32 don't anymore (vocabulary roughly doubling means
+  more beam-slot competition), but all 4 were individually confirmed to
+  still succeed at a wider beam (2 at width 64, 2 at width 512) — not a
+  new structural failure, the same known beam-width trade-off. Full
+  result: `tasks/baseline-v0.2.0-secondary-dominants.md`, summarized in
+  BENCHMARK.md.
+- **Next, per this baseline's own data**: minor mode is now roadmap
+  phase 3, and the cadential-6/4 lookahead stays deprioritized — 0 of
+  the original 144 baseline failures traced to that rule. Also open:
+  75/371 chorales (20.2%) excluded because `Melody` can't represent a
+  soprano rest (roadmap phase 4, comparable in size to minor mode's
+  exclusion count of 143/371, 38.5%); and the 6 chorales still failing
+  as `Other`/undiagnosed even at width 512 in the new baseline — not yet
+  individually root-caused, likely a mix of chromatic tones outside the
+  implemented V/x, V7/x set (see README limitation #6) and possibly
+  other new interactions. Worth a quick per-chorale look (same bisection
+  technique used for the voice-range cluster) before starting minor mode,
+  since it's cheap and might reveal another small, high-value fix like
+  the soprano-range one.
 
 ## Real correctness gaps (tracked in more detail in README "Current limitations")
 
-- Chromatic soprano tones (secondary dominants, chromatic non-chord
-  tones) are unsupported — the dominant baseline failure cause (see
-  above). Roadmap phase 2 (moved up from phase 4).
+- Secondary dominants are narrower than full applied-chord theory: no
+  applied leading-tone chords (vii°/x), no chained tonicization, strict
+  (no inner-voice-exception) resolution. Roadmap phase 2 follow-up, not
+  currently scheduled — the 6 chorales still failing as `Other` in the
+  v0.2.0-in-progress baseline are candidates for needing this, but not
+  yet individually confirmed (see the item above).
 - `Melody` has no `Rest` variant despite `Rest` existing as a type in
   `melody.rs` — 20.2% of the full chorale corpus has a soprano rest and
   can't even be attempted. Roadmap phase 4 (new, surfaced by the baseline).
-- 5/144 baseline fixtures failed on a "voice range" rule conflict —
-  smaller than the chromatic-soprano cluster but not yet root-caused;
-  likely a soprano note at or past `VoicePart::Soprano`'s hardcoded
-  default range edge. Roadmap phase 5.
 - Minor mode isn't just "add a Mode variant" — `RomanNumeral`'s chord
   qualities are currently hardcoded consts assuming major
   (`RomanNumeral::I` = `MajorTriad`, always). Minor mode requires deciding
@@ -73,12 +96,16 @@ scope and phasing — this is the flat, scannable version.
 
 - `why()` at position 0 is thin (no previous chord means most soft rules
   contribute no `Reason`). Not wrong, just a weaker demo than mid-progression
-  positions — see README limitation #7.
+  positions — see README limitation #8.
 - Beam search's horizon effect (`BeamSearch::new()` defaults to width 32
   specifically because narrower widths pruned away the eventually-best
   path before `CadenceSupportRule`'s end-loaded reward could matter) means
   wider or more harmonically ambiguous melodies may need an explicit wider
-  beam. No auto-scaling by melody length exists.
+  beam. No auto-scaling by melody length exists. Got measurably worse when
+  the applied-dominant vocabulary roughly doubled candidates per position
+  (see `tasks/lessons.md`) — fixed there by correcting the score, not by
+  raising the default, but worth re-checking after minor mode adds another
+  vocabulary jump.
 - `criterion` numbers in README are a one-off (one machine, one commit),
   not tracked over time. Roadmap doesn't schedule this until after the
   verification-first phase.

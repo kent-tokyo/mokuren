@@ -147,4 +147,45 @@ mod tests {
         let melody = Melody::new(Vec::new());
         assert!(Composer::new().harmonize(melody).is_err());
     }
+
+    #[test]
+    fn soprano_touching_a5_still_harmonizes() {
+        // A5 is above the pre-widening soprano ceiling (G5, see
+        // src/voice.rs) — 5 real Bach chorales in the v0.1.0 baseline
+        // failed outright because a soprano note this high made every
+        // candidate fail VoiceRangeRule at that position.
+        let melody = Melody::parse("C5 D5 A5 G5").unwrap();
+        let result = Composer::new()
+            .key(Key::C_MAJOR)
+            .style(Style::CommonPractice)
+            .harmonize(melody)
+            .unwrap();
+        assert!(
+            result
+                .decisions
+                .iter()
+                .all(|d| d.selected_candidate().is_valid())
+        );
+    }
+
+    #[test]
+    fn chromatic_soprano_only_harmonizable_by_an_applied_dominant() {
+        // F#4 isn't in C major's diatonic scale at all — no diatonic
+        // chord contains it, so before applied dominants this melody
+        // would fail with `NoValidHarmonization`. It's the third of V/V
+        // (D-F#-A), the applied dominant of the dominant, which is the
+        // only vocabulary that can harmonize this note.
+        let melody = Melody::parse("C4 D4 F#4 G4").unwrap();
+        let result = Composer::new()
+            .key(Key::C_MAJOR)
+            .style(Style::CommonPractice)
+            .harmonize(melody)
+            .unwrap();
+        assert_eq!(result.decisions.len(), 4);
+        let chromatic_position = result.decisions[2].selected();
+        assert!(
+            chromatic_position.applied_to.is_some(),
+            "expected an applied dominant at the F#4 position, got {chromatic_position}"
+        );
+    }
 }

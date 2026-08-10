@@ -129,12 +129,19 @@ fn harmonic_function_of_degree(degree: ScaleDegree) -> HarmonicFunction {
     }
 }
 
-/// A diatonic Roman numeral: scale degree, chord quality, and inversion.
+/// A diatonic Roman numeral, or an applied ("secondary") dominant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RomanNumeral {
     pub degree: ScaleDegree,
     pub quality: ChordQuality,
     pub inversion: ChordInversion,
+    /// `Some(target)` marks this as an applied dominant tonicizing
+    /// `target` (e.g. `V/V`, `V7/vi`) rather than a chord diatonic to the
+    /// key itself — see `applied_dominant`. Always `None` for the
+    /// diatonic vocabulary. `degree` on an applied numeral is always
+    /// `ScaleDegree::DOMINANT`: v0.1 only implements V/x and V7/x, not
+    /// applied leading-tone chords (vii°/x) — see ROADMAP.md.
+    pub applied_to: Option<ScaleDegree>,
 }
 
 impl RomanNumeral {
@@ -147,6 +154,7 @@ impl RomanNumeral {
             degree,
             quality,
             inversion,
+            applied_to: None,
         }
     }
 
@@ -155,7 +163,42 @@ impl RomanNumeral {
     }
 
     pub const fn with_inversion(self, inversion: ChordInversion) -> Self {
-        RomanNumeral::new(self.degree, self.quality, inversion)
+        RomanNumeral { inversion, ..self }
+    }
+
+    /// The applied dominant (or applied dominant seventh) of `target` —
+    /// the major triad or dominant seventh chord a perfect fifth above
+    /// `target`'s own diatonic pitch, temporarily tonicizing it. Root
+    /// position; use `with_inversion` for others.
+    pub const fn applied_dominant(target: ScaleDegree, quality: ChordQuality) -> Self {
+        RomanNumeral {
+            degree: ScaleDegree::DOMINANT,
+            quality,
+            inversion: ChordInversion::Root,
+            applied_to: Some(target),
+        }
+    }
+
+    /// The standard applied-dominant set (AGENTS.md section 5's "V/V,
+    /// V7/ii" example): V/x and V7/x for every diatonic degree except
+    /// the tonic (nothing to tonicize) and the leading tone (too
+    /// unstable a target in practice).
+    pub fn applied_dominant_vocabulary() -> Vec<RomanNumeral> {
+        [
+            ScaleDegree::SUPERTONIC,
+            ScaleDegree::MEDIANT,
+            ScaleDegree::SUBDOMINANT,
+            ScaleDegree::DOMINANT,
+            ScaleDegree::SUBMEDIANT,
+        ]
+        .into_iter()
+        .flat_map(|target| {
+            [
+                RomanNumeral::applied_dominant(target, ChordQuality::MajorTriad),
+                RomanNumeral::applied_dominant(target, ChordQuality::DominantSeventh),
+            ]
+        })
+        .collect()
     }
 
     // Diatonic triads in a major key.
@@ -195,11 +238,38 @@ impl RomanNumeral {
         harmonic_function_of_degree(self.degree)
     }
 
-    pub fn to_chord(&self, key: &Key) -> Chord {
-        Chord {
-            root: key.diatonic_pitch_class(self.degree),
+    /// `None` only for an applied dominant whose root would need an
+    /// accidental beyond what `Accidental` can represent (see
+    /// `pitch::spell_above`) — unreachable for any diatonic numeral,
+    /// since `Key::new` already validated those. Fails closed, same
+    /// pattern as `Chord::pitch_classes`.
+    pub fn to_chord(&self, key: &Key) -> Option<Chord> {
+        let root = match self.applied_to {
+            None => key.diatonic_pitch_class(self.degree),
+            // A perfect fifth (4 letter-steps, 7 semitones) above the
+            // tonicized target — its own dominant, borrowed.
+            Some(target) => spell_above(key.diatonic_pitch_class(target), 4, 7)?,
+        };
+        Some(Chord {
+            root,
             quality: self.quality,
-        }
+        })
+    }
+
+    /// The pitch class this applied dominant resolves to, if it is one.
+    pub fn resolution_target(&self, key: &Key) -> Option<PitchClass> {
+        self.applied_to.map(|t| key.diatonic_pitch_class(t))
+    }
+
+    /// The chromatic tone this applied dominant introduces — its own
+    /// local leading tone, a semitone below the resolution target — for
+    /// rules that track its resolution the way `LeadingToneResolutionRule`
+    /// tracks the diatonic one. `None` if this isn't an applied dominant,
+    /// or (unreachably, for the same reason as `to_chord`) unspellable.
+    pub fn applied_leading_tone(&self, key: &Key) -> Option<PitchClass> {
+        self.applied_to?;
+        let tones = self.to_chord(key)?.pitch_classes().ok()?;
+        tones.get(1).copied()
     }
 }
 
@@ -224,7 +294,20 @@ impl fmt::Display for RomanNumeral {
             f,
             "{text}{}",
             self.inversion.figured_bass(self.quality.is_seventh())
-        )
+        )?;
+        if let Some(target) = self.applied_to {
+            // The target is named, not voiced with its own inversion —
+            // "V/ii", never "V/ii6" — matching how the target's own
+            // diatonic quality (minor for ii/iii/vi) sets its case.
+            let target_base = NUMERALS[(target.0 as usize - 1) % 7];
+            let target_text = if matches!(target.0, 2 | 3 | 6) {
+                target_base.to_lowercase()
+            } else {
+                target_base.to_string()
+            };
+            write!(f, "/{target_text}")?;
+        }
+        Ok(())
     }
 }
 
@@ -293,14 +376,14 @@ mod tests {
 
     #[test]
     fn c_major_triad_spelling() {
-        let chord = RomanNumeral::I.to_chord(&Key::C_MAJOR);
+        let chord = RomanNumeral::I.to_chord(&Key::C_MAJOR).unwrap();
         let tones = chord.pitch_classes().unwrap();
         assert_eq!(tones, vec![PitchClass::C, PitchClass::E, PitchClass::G]);
     }
 
     #[test]
     fn v7_in_c_major_is_g_b_d_f() {
-        let chord = RomanNumeral::V7.to_chord(&Key::C_MAJOR);
+        let chord = RomanNumeral::V7.to_chord(&Key::C_MAJOR).unwrap();
         assert_eq!(
             chord.pitch_classes().unwrap(),
             vec![PitchClass::G, PitchClass::B, PitchClass::D, PitchClass::F]
@@ -325,7 +408,7 @@ mod tests {
 
     #[test]
     fn vii_dim_in_c_major_is_b_d_f() {
-        let chord = RomanNumeral::VII_DIM.to_chord(&Key::C_MAJOR);
+        let chord = RomanNumeral::VII_DIM.to_chord(&Key::C_MAJOR).unwrap();
         assert_eq!(
             chord.pitch_classes().unwrap(),
             vec![PitchClass::B, PitchClass::D, PitchClass::F]
@@ -379,7 +462,29 @@ mod tests {
 
     #[test]
     fn f_major_iv_chord_uses_bb_not_a_sharp() {
-        let chord = RomanNumeral::IV.to_chord(&Key::F_MAJOR);
+        let chord = RomanNumeral::IV.to_chord(&Key::F_MAJOR).unwrap();
         assert_eq!(chord.root, PitchClass::new(NoteLetter::B, Accidental::Flat));
+    }
+
+    #[test]
+    fn v_of_v_in_c_major_is_d_major_tonicizing_g() {
+        let f_sharp = PitchClass::new(NoteLetter::F, Accidental::Sharp);
+        let rn = RomanNumeral::applied_dominant(ScaleDegree::DOMINANT, ChordQuality::MajorTriad);
+        let chord = rn.to_chord(&Key::C_MAJOR).unwrap();
+        assert_eq!(
+            chord.pitch_classes().unwrap(),
+            vec![PitchClass::D, f_sharp, PitchClass::A]
+        );
+        assert_eq!(rn.resolution_target(&Key::C_MAJOR), Some(PitchClass::G));
+        assert_eq!(rn.applied_leading_tone(&Key::C_MAJOR), Some(f_sharp));
+        assert_eq!(rn.to_string(), "V/V");
+    }
+
+    #[test]
+    fn v7_of_ii_in_c_major_targets_d_and_displays_lowercase() {
+        let rn =
+            RomanNumeral::applied_dominant(ScaleDegree::SUPERTONIC, ChordQuality::DominantSeventh);
+        assert_eq!(rn.resolution_target(&Key::C_MAJOR), Some(PitchClass::D));
+        assert_eq!(rn.to_string(), "V7/ii");
     }
 }

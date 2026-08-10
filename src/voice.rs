@@ -50,9 +50,15 @@ impl VoicePart {
     /// A conventional default choral range for this voice.
     pub fn default_range(&self) -> VoiceRange {
         match self {
+            // Ceiling widened from G5 (see PLAN.md/tasks/lessons.md): the
+            // v0.1.0 chorale baseline found 5 real Bach soprano lines
+            // that briefly reach A5, one step above G5 — every candidate
+            // at that position was rejected (soprano is taken directly
+            // from the input melody, never range-filtered like the
+            // generated inner voices), killing the whole harmonization.
             VoicePart::Soprano => VoiceRange::new(
                 Pitch::new(PitchClass::C, Octave(4)),
-                Pitch::new(PitchClass::G, Octave(5)),
+                Pitch::new(PitchClass::A, Octave(5)),
             ),
             VoicePart::Alto => VoiceRange::new(
                 Pitch::new(PitchClass::G, Octave(3)),
@@ -302,6 +308,27 @@ mod tests {
             p(PitchClass::C, 6), // absurdly high for bass
         );
         assert_eq!(range_violations(&v), vec![VoicePart::Bass]);
+    }
+
+    #[test]
+    fn soprano_range_reaches_a5_but_not_b5() {
+        // A5 (see PLAN.md): real Bach soprano lines reach it; the
+        // default range was widened from G5 to cover it.
+        let a5 = Voicing::new(
+            p(PitchClass::A, 5),
+            p(PitchClass::E, 4),
+            p(PitchClass::C, 4),
+            p(PitchClass::A, 2),
+        );
+        assert!(range_violations(&a5).is_empty());
+
+        let b5 = Voicing::new(
+            p(PitchClass::B, 5),
+            p(PitchClass::E, 4),
+            p(PitchClass::C, 4),
+            p(PitchClass::A, 2),
+        );
+        assert_eq!(range_violations(&b5), vec![VoicePart::Soprano]);
     }
 
     #[test]

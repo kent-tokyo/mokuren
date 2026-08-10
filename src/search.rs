@@ -37,14 +37,19 @@ struct BeamEntry {
     cumulative_voice_leading_cost: u32,
 }
 
-type RomanNumeralRank = (u8, u8, u8);
+type RomanNumeralRank = (u8, u8, u8, u8);
 type VoicingKey = (i32, i32, i32, i32);
 
 fn path_key(path: &[(RomanNumeral, Voicing)]) -> Vec<(RomanNumeralRank, VoicingKey)> {
     path.iter()
         .map(|(rn, v)| {
             (
-                (rn.degree.0, rn.quality as u8, rn.inversion as u8),
+                (
+                    rn.degree.0,
+                    rn.quality as u8,
+                    rn.inversion as u8,
+                    rn.applied_to.map_or(0, |d| d.0),
+                ),
                 (
                     v.soprano.midi(),
                     v.alto.midi(),

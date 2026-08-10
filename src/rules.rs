@@ -28,6 +28,7 @@ pub enum RuleId {
     LeadingToneResolution,
     ChordalSeventhResolution,
     UnpreparedSixFour,
+    SecondaryDominantResolution,
     // Soft preferences.
     VoiceLeadingQuality,
     MelodicMotion,
@@ -52,6 +53,7 @@ impl fmt::Display for RuleId {
             RuleId::LeadingToneResolution => "leading-tone resolution",
             RuleId::ChordalSeventhResolution => "chordal seventh resolution",
             RuleId::UnpreparedSixFour => "unprepared six-four",
+            RuleId::SecondaryDominantResolution => "secondary dominant resolution",
             RuleId::VoiceLeadingQuality => "voice leading",
             RuleId::MelodicMotion => "melodic motion",
             RuleId::HarmonicFunctionProgression => "harmonic function progression",
@@ -431,6 +433,58 @@ impl Rule for UnpreparedSixFourRule {
     }
 }
 
+/// An applied/secondary dominant (`RomanNumeral::applied_to` is `Some`)
+/// must resolve to the chord it tonicizes: the *next* chord's root must
+/// be that target's diatonic pitch class, and the applied dominant's own
+/// chromatic tone (its local leading tone, a semitone below the target)
+/// must resolve up by step wherever it's voiced — the same pull
+/// `LeadingToneResolutionRule` enforces for the diatonic leading tone,
+/// applied to the borrowed one. v0.1 requires strict step-up resolution
+/// in every voice (no inner-voice exception yet, unlike
+/// `LeadingToneResolutionRule` — see README's "Current limitations"),
+/// and rejects an applied dominant outright at the final position, since
+/// it can never resolve there.
+pub struct SecondaryDominantResolutionRule;
+impl Rule for SecondaryDominantResolutionRule {
+    fn id(&self) -> RuleId {
+        RuleId::SecondaryDominantResolution
+    }
+    fn severity(&self) -> Severity {
+        Severity::Hard
+    }
+    fn evaluate(&self, ctx: &RuleContext) -> RuleResult {
+        if ctx.roman_numeral.applied_to.is_some() && ctx.is_final_position {
+            return RuleResult::violation(self.id(), self.severity());
+        }
+        let (Some(prev), Some(prev_rn)) = (ctx.previous, ctx.previous_roman_numeral) else {
+            return RuleResult::pass();
+        };
+        let Some(target_pc) = prev_rn.resolution_target(ctx.key) else {
+            return RuleResult::pass();
+        };
+        if !ctx.chord.root.is_enharmonic_to(&target_pc) {
+            return RuleResult::violation(self.id(), self.severity());
+        }
+        let Some(chromatic_tone) = prev_rn.applied_leading_tone(ctx.key) else {
+            return RuleResult::violation(self.id(), self.severity());
+        };
+        for voice in VoicePart::all() {
+            let prev_pitch = prev.pitch(voice);
+            if !prev_pitch.pitch_class.is_enharmonic_to(&chromatic_tone) {
+                continue;
+            }
+            let curr_pitch = ctx.current.pitch(voice);
+            let motion = curr_pitch.midi() - prev_pitch.midi();
+            let resolved_up_by_step =
+                motion == 1 && curr_pitch.pitch_class.is_enharmonic_to(&target_pc);
+            if !resolved_up_by_step {
+                return RuleResult::violation(self.id(), self.severity());
+            }
+        }
+        RuleResult::pass()
+    }
+}
+
 // ---- Soft preferences -------------------------------------------------
 
 /// Rewards common-tone retention and contrary outer-voice motion —
@@ -535,7 +589,35 @@ impl Rule for HarmonicFunctionProgressionRule {
         };
         let from = prev_rn.harmonic_function();
         let to = ctx.roman_numeral.harmonic_function();
-        let delta = harmonic_transition_score(from, to);
+        let is_correct_secondary_resolution = prev_rn
+            .resolution_target(ctx.key)
+            .is_some_and(|target_pc| ctx.chord.root.is_enharmonic_to(&target_pc));
+        // The diatonic table's `(Dominant, Predominant) => -0.6` models an
+        // unwanted functional retrogression (e.g. V -> IV). That's not
+        // what's happening for V/ii -> ii or V/IV -> IV:
+        // `SecondaryDominantResolutionRule` *requires* this exact
+        // transition as a correct, textbook resolution, not a
+        // retrogression — override only this one broken table entry.
+        // Every other (from, to) pair, including a resolution that lands
+        // on a dominant-function target (V/V -> V), keeps the table's
+        // existing (already-sensible) score.
+        let delta = if is_correct_secondary_resolution && to == HarmonicFunction::Predominant {
+            0.3
+        } else if ctx.roman_numeral.applied_to.is_some() {
+            // Introducing an applied dominant is scored on its own terms
+            // — voice leading now, and the resolution reward above once
+            // it actually resolves — not via the diatonic table, which
+            // would otherwise hand it the same "arriving at the dominant"
+            // reward a true V gets (e.g. Predominant -> Dominant => 0.8)
+            // for *any* diatonic soprano note it happens to also fit.
+            // Without this, the search preferred gratuitously substituting
+            // an applied dominant for an equally valid diatonic chord
+            // anywhere one was merely possible, not just where a
+            // chromatic soprano tone actually required one.
+            0.0
+        } else {
+            harmonic_transition_score(from, to)
+        };
         RuleResult::scored(
             delta,
             Some(Reason::HarmonicFunction {
@@ -587,7 +669,16 @@ impl Rule for CadenceSupportRule {
             (Cadence::Deceptive, 1.0)
         } else if from == HarmonicFunction::Predominant && to == HarmonicFunction::Tonic {
             (Cadence::Plagal, 1.2)
-        } else if to == HarmonicFunction::Dominant {
+        } else if to == HarmonicFunction::Dominant && from != HarmonicFunction::Dominant {
+            // A half cadence is an *arrival* at the dominant (typically
+            // from IV/ii, sometimes from I) — not a second dominant-
+            // function chord in a row. Requiring `from != Dominant` stops
+            // an applied dominant resolving to a plain V (e.g. V/V -> V)
+            // from double-dipping: it already scores well as a correct
+            // resolution (`HarmonicFunctionProgressionRule`); rewarding
+            // the same move again here as a "cadence" is what let a
+            // dominant-of-the-dominant chain outscore an actual tonic
+            // close for melodies where both are reachable.
             (Cadence::Half, 0.5)
         } else {
             (Cadence::None, 0.0)
@@ -701,6 +792,7 @@ impl Style {
                 Box::new(LeadingToneResolutionRule),
                 Box::new(ChordalSeventhResolutionRule),
                 Box::new(UnpreparedSixFourRule),
+                Box::new(SecondaryDominantResolutionRule),
                 Box::new(VoiceLeadingRule),
                 Box::new(MelodicMotionRule),
                 Box::new(HarmonicFunctionProgressionRule),
@@ -757,7 +849,7 @@ mod tests {
     #[test]
     fn missing_chord_tone_is_a_hard_violation() {
         let key = Key::C_MAJOR;
-        let chord = RomanNumeral::I.to_chord(&key);
+        let chord = RomanNumeral::I.to_chord(&key).unwrap();
         // No third (E) anywhere: C,C,G,C.
         let current = v(
             (PitchClass::C, 5),
@@ -781,8 +873,8 @@ mod tests {
     #[test]
     fn leading_tone_in_outer_voice_must_resolve_up() {
         let key = Key::C_MAJOR;
-        let prev_chord = RomanNumeral::V.to_chord(&key);
-        let chord = RomanNumeral::I.to_chord(&key);
+        let prev_chord = RomanNumeral::V.to_chord(&key).unwrap();
+        let chord = RomanNumeral::I.to_chord(&key).unwrap();
         // Previous: soprano holds B4 (leading tone).
         let prev = v(
             (PitchClass::B, 4),
@@ -834,8 +926,8 @@ mod tests {
     #[test]
     fn leading_tone_in_inner_voice_may_skip_down_to_complete_the_chord() {
         let key = Key::C_MAJOR;
-        let prev_chord = RomanNumeral::V.to_chord(&key);
-        let chord = RomanNumeral::I.to_chord(&key);
+        let prev_chord = RomanNumeral::V.to_chord(&key).unwrap();
+        let chord = RomanNumeral::I.to_chord(&key).unwrap();
         // Previous: tenor holds B3 (leading tone).
         let prev = v(
             (PitchClass::G, 4),
@@ -906,7 +998,7 @@ mod tests {
     #[test]
     fn authentic_cadence_scores_higher_than_plain_tonic_arrival() {
         let key = Key::C_MAJOR;
-        let chord = RomanNumeral::I.to_chord(&key);
+        let chord = RomanNumeral::I.to_chord(&key).unwrap();
         let curr = v(
             (PitchClass::C, 5),
             (PitchClass::E, 4),

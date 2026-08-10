@@ -148,3 +148,76 @@ benchmark" (that's all it was ever used for), but is the wrong tool for
 but-real failure categories and "assumed but actually zero" categories
 both require enough samples to appear at their true rate. Don't stop at
 a validation sample and start reordering the roadmap from it.
+
+## Adding a new "correct" score reward can still break an unrelated, fully-diatonic demo — check by running the search, not by reasoning about the one rule you touched
+
+Building secondary dominants, a fully-correct-in-isolation reward
+("resolving an applied dominant to its target scores like a strong
+resolution") broke `tests/spine.rs`'s pinned demo — a melody with *no
+chromatic notes at all*. The mechanism wasn't obvious from reading the
+new rule alone: the reward was keyed to *any* correct applied-dominant
+resolution, including `V/V -> V` (the applied dominant of the dominant,
+resolving right back to a plain, already-reachable diatonic chord). That
+gave the search a "free" way to rack up reward on a melody where every
+note was already harmonizable diatonically, by gratuitously substituting
+an applied dominant for a diatonic chord it merely *fit*, not one it was
+*needed* for — and that was enough to make the search prefer ending the
+whole piece on the dominant over the correct tonic close, at the
+project's own default beam width. Widening the beam did NOT fix it
+cleanly: 256 still picked the wrong ending, 512 was needed — a huge,
+fragile jump from the documented default of 32, and a sign the real
+problem was the reward's shape, not the beam. The actual fix was scoring
+an applied dominant's *introduction* as neutral (0.0) rather than
+rewarding it like an arrival at the true dominant, so it's chosen only
+when its other advantages (voice leading, or being the *only* option for
+a genuinely chromatic tone) justify it.
+
+**The pattern**: this is the same lesson as "score-weight changes need
+actual search runs, not just unit-level reasoning about one rule"
+(above), but the trap here was sneakier — the new rule was correct on
+every unit-level check (`cargo test` was green throughout), and the
+regression only showed up on a completely unrelated pinned example that
+had nothing to do with the new feature. Any new *reward* (not just a new
+weight value) added to a shared scoring table needs its blast radius
+checked against material the feature wasn't built for, not just material
+it was — a width sweep (`for width in [8, 16, 32, 64, ...]`) on an
+existing golden example is cheap and found this in minutes.
+
+## An asymmetrically-generated voicing means a hard-coded range on the *fixed* voice is a sharper failure mode than the same range on a *generated* one
+
+The "voice range" failure cluster (5/144 baseline chorales) looked, before
+investigation, like it could be five different small issues. It was one:
+every one of those 5 chorales had a soprano note on A5, one step above
+`VoicePart::Soprano`'s old default ceiling (G5). The reason this killed
+the *entire* harmonization rather than just narrowing the options: alto/
+tenor/bass are always *generated* within their own range
+(`pitches_in_range` filters candidate pitches before they're ever
+scored), so they can never individually cause a range violation — but
+soprano is *given*, taken directly from the input melody at every
+position, never filtered. A hard-coded range on a value the engine
+controls fails soft (fewer options); the same kind of range on a value
+it doesn't control fails hard (zero options, `NoValidHarmonization`) the
+moment real material exceeds it. Lesson: when auditing a hard-coded
+bound, ask which side of the generate/accept boundary it sits on —
+bounds on inputs the system doesn't control deserve a wider, evidence-
+based margin (or explicit handling for "out of range"), not the same
+tolerance as a bound on the system's own generated output.
+
+## `comm` needs its input sorted the way *it* compares, not the way you sorted it
+
+Diffing the v0.1.0 and v0.2.0-in-progress per-chorale coverage lists
+(`comm -23 old_covered.txt new_covered.txt`, both piped through `sort -n`
+first) reported 20 chorales as regressions that weren't real — `comm`
+compares lines byte-wise (lexicographically) regardless of how the input
+was sorted, so numerically-sorted multi-digit IDs (`sort -n`: ...,7, 22,
+24, ...) don't match its own ordering assumption (lexicographically, "22"
+sorts before "7"), and it silently produces wrong output instead of an
+error. Caught only because the count (20 "regressions" out of 73) was
+implausibly high for what the data should show — re-running with plain
+`sort` (lexicographic, matching `comm`'s actual comparison) dropped it to
+the real number (4, all independently confirmed beam-width-recoverable).
+Lesson: `comm`/`sort -c` default to byte-wise comparison; `sort -n` and
+`comm` silently disagree unless told to agree. When a diff-style tool's
+output looks too large or too small to be plausible, don't rationalize
+it — check whether the tool's comparison order actually matches the
+sort order fed into it.

@@ -2,7 +2,7 @@
 
 This is the "fix the protocol before running it" document requested alongside the ROADMAP.md landscape update. It fixes *what* the benchmark measures and *what corpus it's allowed to touch*. No chorale data is vendored into this repository — see [Corpus source](#corpus-source-approach-decided-specific-source-still-open) below.
 
-**Status**: the harness (`examples/chorale_benchmark.rs`) and the music21 extraction adapter (`tools/music21_chorale_extractor.py`) are both implemented and validated end to end against 20 real chorales extracted from a local music21 install — see [First validation run](#first-validation-run-not-the-baseline) below for what that surfaced. The full major-mode baseline (all major-mode chorales, not a 20-chorale sample) is still a deliberate next step, not done as a side effect of this validation pass.
+**Status**: the harness (`examples/chorale_benchmark.rs`) and the music21 extraction adapter (`tools/music21_chorale_extractor.py`) are implemented and validated against the full 144-chorale major-mode subset, twice now — [v0.1.0 baseline](#v010-baseline-full-major-mode-subset-2026-08-10) and [v0.2.0-in-progress baseline](#v020-in-progress-baseline-secondary-dominants--soprano-range-fix-2026-08-11) — establishing the "benchmark → failure decomposition → next feature → re-benchmark" loop this project now runs on (ROADMAP.md's "Verification-first phase").
 
 Fixture format is v2 (duration-aware; v1 forced every note to a quarter, silently discarding real chorale rhythm — see `tasks/lessons.md`). Full spec is documented in `examples/chorale_benchmark.rs`'s module doc comment; `cargo doc --open` or read the file directly.
 
@@ -57,9 +57,19 @@ Full results, provenance, failure taxonomy, and the per-chorale table: [`tasks/b
 
 Reproduce: `python3 tools/music21_chorale_extractor.py -o <dir>` then `cargo run --release --example chorale_benchmark -- <dir> --report tasks/baseline-v0.1.0.md`. Extracted `.chorale` files are never committed (deleted after each run here, per "reference, don't vendor" below) — only the report (titles, catalog numbers, mokuren's own computed statistics — no encoded musical content) is.
 
+## v0.2.0-in-progress baseline (secondary dominants + soprano-range fix, 2026-08-11)
+
+Same 144-chorale corpus, re-extracted. Full results and per-chorale table: [`tasks/baseline-v0.2.0-secondary-dominants.md`](tasks/baseline-v0.2.0-secondary-dominants.md). Summary:
+
+- **Coverage rose from 50.7% (73/144) to 91.7% (132/144)** — +41.0pt absolute, +81% relative — from implementing applied dominants (`RomanNumeral::applied_to`, ROADMAP.md phase 2: the standard V/x, V7/x set for x in {ii, iii, IV, V, vi}) and fixing the soprano-range ceiling (ROADMAP.md phase 5: the v0.1.0 baseline's 5 "voice range" failures all traced to a soprano note on A5, one step above the old default ceiling of G5). 0 hard-rule violations, same invariant as v0.1.0.
+- **Regression-checked, not just improved**: diffing per-chorale against the v0.1.0 baseline found 4 chorales that used to succeed at width 32 and don't anymore — the applied-dominant vocabulary roughly doubling candidates per position means more competition for the same fixed beam width (the horizon effect, README limitation #4, measurably worsened — see `tasks/lessons.md`). All 4 were directly verified to still succeed at a wider beam (2 recover at width 64, 2 at width 512), so this is the existing, documented beam-width trade-off, not a new correctness problem. The default width (32) was deliberately left unchanged rather than raised to cover the width-512 cases, which would make a rare case expensive for everyone.
+- **Remaining 12 failures**: 6 search-exhausted (a wider beam finds a path — includes the 4 regressions above, verified, plus 2 more), 6 still `Other` (undiagnosed even at width 512) — not yet individually root-caused, tracked in `tasks/todo.md`.
+- Runtime roughly 1.8x the v0.1.0 baseline's median (1.4s → 2.6s/chorale at width 32), consistent with the vocabulary roughly doubling — matches the advisor-style estimate made before running it, not a surprise.
+- Voice-leading cost, cadence distribution, and explanation completeness are all in the same range as v0.1.0 (median cost 7.33 vs 7.20; 68.9% authentic vs 61.6%; `why()` 98.0% vs 97.8%) — the new vocabulary didn't degrade the quality of what it *does* produce, only expanded what it covers.
+
 ## Phasing
 
-Major-mode subset first (done above, roadmap phase 1) was exactly right: it needed zero new theory work and immediately produced the finding that reorders everything after it. Minor-mode chorales fold in once roadmap phase 2 lands — expect the chromatic-soprano failure *rate* to hold or worsen there (minor keys have their own chromatic tendency tones), which is part of why secondary-dominant/chromatic support was moved ahead of the 6/4 lookahead in the phase order.
+Major-mode subset first (done above, roadmap phase 1) was exactly right: it needed zero new theory work and immediately produced the finding that reorders everything after it. Minor-mode chorales fold in once roadmap phase 3 lands — expect the chromatic-soprano failure *rate* among them to hold or worsen (minor keys have their own chromatic tendency tones), same reasoning that put secondary-dominant/chromatic support ahead of minor mode in the phase order.
 
 ## Corpus candidates and what's verified about each
 

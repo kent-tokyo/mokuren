@@ -61,7 +61,7 @@ opening a second plan doc):
   lets alto/tenor skip down a step or third to complete the chord
   instead of resolving up, matching the standard textbook relaxation.
   Outer voices (soprano/bass) are unchanged (strict). Narrower than
-  real pedagogy still — see README "Current limitations" #9 — the
+  real pedagogy still — see README "Current limitations" #10 — the
   exception is unconditional here rather than "only when resolving up
   would leave the chord incomplete."
 - Fail-closed pitch spelling: `spell_above`/`accidental_for_offset` used
@@ -109,8 +109,51 @@ opening a second plan doc):
   "Verification-first phase," which was reordered by this finding
   (secondary dominants moved ahead of the 6/4 lookahead, and a new
   soprano-rest `Melody` gap was surfaced that wasn't on the original list).
-
-## Phases (AGENTS.md section 29, adapted to depth-first order)
+- Secondary dominants (roadmap phase 2): `RomanNumeral::applied_to: Option<ScaleDegree>`
+  marks an applied dominant (V/x, V7/x for x in ii/iii/IV/V/vi); `to_chord`
+  became `Option<Chord>` (only 2 real call sites, both in `generate.rs` —
+  the diatonic path stays infallible, only an applied dominant's root can
+  fail to spell). New hard rule `SecondaryDominantResolutionRule` requires
+  the next chord's root to match the tonicized target and the chromatic
+  tone to resolve up by step in every voice holding it (no inner-voice
+  exception yet, unlike `LeadingToneResolutionRule` — README limitation
+  #6). Two tie-break tuples (`generate::canonical_rank`,
+  `search::path_key`) needed a 4th field (`applied_to`) since every
+  applied dominant shares `degree == ScaleDegree::DOMINANT` regardless of
+  target — caught by review before it shipped, not by a failing test.
+  - The naive scoring version broke a demo pinned since v0.1
+    (`tests/spine.rs`'s `ends_on_tonic_with_a_recognized_cadence`,
+    `examples/basic.rs`): rewarding a correctly-resolving applied
+    dominant as strongly as an authentic cadence let the search
+    substitute one for a diatonic chord anywhere it merely *fit* a
+    diatonic soprano note, not just where a chromatic tone required it —
+    on the fully-diatonic spine melody, `V/V -> V` (dominant-of-the-
+    dominant, resolving right back to the plain dominant) outscored the
+    correct tonic close, and needed a beam width in the hundreds before
+    the correct path resurfaced. Root cause found by actually running
+    the search at a width sweep (8 through 1024) and reading `why()`/
+    `why_not()` at the divergent position, not by re-deriving the
+    expected score by hand — see `tasks/lessons.md`. Fixed by not
+    scoring an applied dominant's *introduction* via the diatonic
+    harmonic-function table at all (only its *resolution* is scored),
+    which restored the correct ending at the default width (32) with no
+    change to the default beam width itself.
+  - `examples/chorale_benchmark.rs`'s `classify_failure` used to treat
+    any non-diatonic soprano tone as automatically unsupported
+    (`FailureCategory::ChromaticSoprano`); that stopped being true the
+    moment applied dominants existed, so the check now asks whether the
+    tone is a chord tone of *any* implemented chord (diatonic or applied
+    dominant), not just the plain diatonic scale.
+- Voice-range investigation (roadmap phase 5): root-caused all 5 of the
+  baseline's "voice range" failures to the same cause — a soprano note
+  on A5, one step above `VoicePart::Soprano`'s old default ceiling (G5).
+  Unlike the generated inner voices (which are only ever offered pitches
+  `pitches_in_range` already filtered to their range), the soprano pitch
+  is taken directly from the input melody at every position, so a single
+  out-of-range soprano note rejects *every* candidate there and kills the
+  whole harmonization — not a near-miss worth a tolerance/warning, an
+  outright ceiling-too-low bug once real material was tried. Widened to
+  A5, justified by this real data rather than picked arbitrarily.
 
 1. Foundations: Pitch/Interval/Key/Chord/RomanNumeral/Voice/SATB — just
    enough to represent the spine's melody and one harmonization.

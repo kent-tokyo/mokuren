@@ -39,11 +39,12 @@
 //! run against those to see the report format without needing a corpus.
 //!
 //! Failures are never lumped into one "coverage" bucket (BENCHMARK.md):
-//! each is classified as chromatic-soprano (a pitch class outside the
-//! key's diatonic scale — mokuren is diatonic-only), search-exhausted
-//! (a wider beam finds a path), a specific rule conflict (identified by
-//! bisecting to the shortest failing prefix and inspecting
-//! `CandidateGenerator`'s rejection reasons there), or other.
+//! each is classified as chromatic-soprano (a pitch class with no chord
+//! at all in mokuren's vocabulary — neither diatonic nor one of the
+//! implemented applied dominants), search-exhausted (a wider beam finds
+//! a path), a specific rule conflict (identified by bisecting to the
+//! shortest failing prefix and inspecting `CandidateGenerator`'s
+//! rejection reasons there), or other.
 
 use mokuren::diagnostics::Diagnostics;
 use mokuren::generate::{CandidateGenerator, CandidateStatus};
@@ -200,14 +201,21 @@ fn parse_chorale_fixture(text: &str) -> std::result::Result<ChoraleFixture, Stri
 
 /// Widths tried, in order, when a chorale fails at the standard width —
 /// also the data behind the beam-width coverage curve in the report.
-const RETRY_WIDTHS: [usize; 3] = [64, 128, 256];
+/// Widened to 512 (from a v0.1.0 ceiling of 256) after the secondary-
+/// dominant vocabulary roughly doubled candidates per position: some
+/// chorales that used to succeed at width 32 needed up to 512 to
+/// recover, and without this wider ceiling `classify_failure` mislabeled
+/// them as `Other` (undiagnosed) rather than `SearchExhausted` — a
+/// classification bug, not evidence they were structurally unsolvable.
+const RETRY_WIDTHS: [usize; 4] = [64, 128, 256, 512];
 const STANDARD_WIDTH: usize = 32;
 
 #[derive(Debug, Clone)]
 enum FailureCategory {
-    /// A soprano pitch class isn't in the key's diatonic scale — no
-    /// diatonic chord can contain it, in any key. Never fixed by a
-    /// wider beam; only by adding chromatic harmony (roadmap phase 4).
+    /// A soprano pitch class has no chord at all in mokuren's current
+    /// vocabulary — neither diatonic nor one of the implemented applied
+    /// dominants (V/x, V7/x). Never fixed by a wider beam; only by
+    /// adding more chromatic harmony (modal mixture, Neapolitan, ...).
     ChromaticSoprano,
     /// Fully diatonic, but the standard beam width missed a path a
     /// wider one finds. Not a rule gap — search breadth.
@@ -236,11 +244,31 @@ impl std::fmt::Display for FailureCategory {
     }
 }
 
-fn is_fully_diatonic(melody: &Melody, key: &Key) -> bool {
+/// A pitch class mokuren's current harmonic vocabulary has *no* chord
+/// for at all — neither a diatonic one nor one of the implemented
+/// applied dominants (V/x, V7/x for x in ii/iii/IV/V/vi). Applied
+/// dominants only cover *some* chromatic alterations (each one's own
+/// local leading tone); a soprano tone from an unimplemented category
+/// (modal mixture, Neapolitan, augmented sixths, ...) is still
+/// genuinely unsupported, so this checks actual chord coverage rather
+/// than "is this pitch class in the plain diatonic scale."
+fn is_harmonically_unreachable(pitch_class: mokuren::pitch::PitchClass, key: &Key) -> bool {
+    if key.degree_of(pitch_class).is_some() {
+        return false;
+    }
+    !RomanNumeral::applied_dominant_vocabulary()
+        .iter()
+        .any(|rn| {
+            rn.to_chord(key)
+                .is_some_and(|chord| chord.contains_pitch_class(pitch_class))
+        })
+}
+
+fn has_unsupported_chromatic_tone(melody: &Melody, key: &Key) -> bool {
     melody
         .notes
         .iter()
-        .all(|n| key.degree_of(n.pitch.pitch_class).is_some())
+        .any(|n| is_harmonically_unreachable(n.pitch.pitch_class, key))
 }
 
 fn harmonizes_at_width(fixture: &ChoraleFixture, width: usize) -> bool {
@@ -346,7 +374,7 @@ fn diagnose_structural_failure(fixture: &ChoraleFixture, width: usize) -> Failur
 }
 
 fn classify_failure(fixture: &ChoraleFixture) -> FailureCategory {
-    if !is_fully_diatonic(&fixture.soprano, &fixture.key) {
+    if has_unsupported_chromatic_tone(&fixture.soprano, &fixture.key) {
         return FailureCategory::ChromaticSoprano;
     }
     for &width in &RETRY_WIDTHS {

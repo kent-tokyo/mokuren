@@ -64,8 +64,17 @@ fn status_rank(c: &EvaluatedCandidate) -> u8 {
     if c.is_valid() { 0 } else { 1 }
 }
 
-fn canonical_rank(rn: &RomanNumeral) -> (u8, u8, u8) {
-    (rn.degree.0, rn.quality as u8, rn.inversion as u8)
+fn canonical_rank(rn: &RomanNumeral) -> (u8, u8, u8, u8) {
+    // `applied_to` breaks ties among applied dominants, which all share
+    // `degree == ScaleDegree::DOMINANT` (V/ii, V/iii, ... would otherwise
+    // collide in root position, silently falling through to `voicing_key`
+    // instead of the documented deterministic Roman-numeral ordering).
+    (
+        rn.degree.0,
+        rn.quality as u8,
+        rn.inversion as u8,
+        rn.applied_to.map_or(0, |d| d.0),
+    )
 }
 
 fn voicing_key(v: &Voicing) -> (i32, i32, i32, i32) {
@@ -79,7 +88,10 @@ fn voicing_key(v: &Voicing) -> (i32, i32, i32, i32) {
 
 fn harmonic_vocabulary() -> Vec<RomanNumeral> {
     let mut out = Vec::new();
-    for rn in RomanNumeral::diatonic_vocabulary() {
+    let numerals = RomanNumeral::diatonic_vocabulary()
+        .into_iter()
+        .chain(RomanNumeral::applied_dominant_vocabulary());
+    for rn in numerals {
         let inversions: &[ChordInversion] = if rn.quality.is_seventh() {
             &[
                 ChordInversion::Root,
@@ -130,11 +142,14 @@ impl<'a> CandidateGenerator<'a> {
         diagnostics: &mut Diagnostics,
     ) -> Vec<EvaluatedCandidate> {
         let rules = self.style.rules();
-        let previous_chord = previous_roman_numeral.map(|rn| rn.to_chord(self.key));
+        let previous_chord = previous_roman_numeral.and_then(|rn| rn.to_chord(self.key));
         harmonic_vocabulary()
             .into_iter()
             .filter_map(|rn| {
-                let chord = rn.to_chord(self.key);
+                // An applied dominant whose root can't be spelled simply
+                // isn't offered — same "exclude, don't fabricate" outcome
+                // as an unspellable chord's `pitch_classes()` failing.
+                let chord = rn.to_chord(self.key)?;
                 if !chord.contains_pitch_class(soprano.pitch_class) {
                     return None;
                 }
@@ -297,16 +312,28 @@ mod tests {
         let candidates = generator.generate(soprano, None, None, false, &mut diag);
 
         // C appears in I (C,E,G), IV (F,A,C), and vi (A,C,E) — not in
-        // ii, iii, V, V7, or vii°.
-        let numerals: std::collections::HashSet<_> = candidates
+        // diatonic ii, iii, V, V7, or vii°. Applied dominants share the
+        // diatonic V's `degree` field (5) regardless of target, so this
+        // checks the diatonic vocabulary only (`applied_to.is_none()`).
+        let diatonic_numerals: std::collections::HashSet<_> = candidates
             .iter()
+            .filter(|c| c.roman_numeral.applied_to.is_none())
             .map(|c| c.roman_numeral.degree.0)
             .collect();
-        assert!(numerals.contains(&1)); // I
-        assert!(numerals.contains(&4)); // IV
-        assert!(numerals.contains(&6)); // vi
-        assert!(!numerals.contains(&2)); // ii has no C
-        assert!(!numerals.contains(&5)); // V/V7 has no C
+        assert!(diatonic_numerals.contains(&1)); // I
+        assert!(diatonic_numerals.contains(&4)); // IV
+        assert!(diatonic_numerals.contains(&6)); // vi
+        assert!(!diatonic_numerals.contains(&2)); // ii has no C
+        assert!(!diatonic_numerals.contains(&5)); // V/V7 has no C
+
+        // V/IV (the applied dominant of IV) is C-E-G — enharmonically
+        // identical to I, since IV's own dominant is the tonic itself —
+        // so it's expected to be offered here too.
+        assert!(
+            candidates
+                .iter()
+                .any(|c| c.roman_numeral.applied_to == Some(crate::key::ScaleDegree::SUBDOMINANT))
+        );
         assert!(diag.candidates_generated > 0);
     }
 
