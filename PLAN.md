@@ -36,10 +36,23 @@ Deferred (explicitly out of scope for this pass):
 - Natural/harmonic/melodic minor (spec: "必要性を検討")
 - Chromatic alterations, secondary dominants, Neapolitan, Ger+6
 - direct/hidden fifths & octaves (spec: "評価" — revisit once the spine works)
-- proptest property tests (spec: "可能なら")
 - serde, MIDI, MusicXML output
 - workspace split into multiple crates (section 26: don't split until real
   dependency boundaries appear)
+
+Done since the first pass (Phase 7 "thicken" work, tracked here rather than
+opening a second plan doc):
+- `UnpreparedSixFourRule` — the initial spine let the search open a phrase
+  on an unrestricted I64, which isn't legal Common Practice writing; see
+  README "Current limitations" #2 for what this rule does and doesn't cover.
+- `tests/properties.rs` (`proptest`, spec: "可能なら"): pitch-class
+  normalization, interval symmetry, chord-spelling round trip, and key
+  scale-degree round trip. Scoped to the (root, quality) space
+  `RomanNumeral::to_chord` actually produces — see that file's doc comment
+  for why, and `src/pitch.rs`'s `spell_above`/`accidental_for_offset` for
+  the representable-accidental-range limitation the scoping works around.
+- `tests/golden.rs`: hand-verified small SATB passages (section 22
+  "Golden tests").
 
 ## Phases (AGENTS.md section 29, adapted to depth-first order)
 
