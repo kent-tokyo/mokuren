@@ -3,6 +3,7 @@ name = "mokuren"
 version = "0.1.0"
 edition = "2024"
 description = "A fast, explainable symbolic composition engine for exploring music-theoretic decisions."
+repository = "https://github.com/kent-tokyo/mokuren"
 keywords = ["music-theory", "harmony", "composition", "explainable"]
 categories = ["algorithms", "science"]
 
