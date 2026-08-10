@@ -9,19 +9,31 @@ scope and phasing — this is the flat, scannable version.
 
 ## Blocking the verification-first phase
 
-- **Chorale corpus: specific source not yet chosen.** Decision on *approach*
-  is made (2026-08-10: "Reference, don't vendor" — see BENCHMARK.md). Still
-  open: which specific source (music21 corpus / craigsapp / jthickstun /
-  CCARH direct, or something else) the benchmark harness points at by
-  default. This is the one remaining blocker on running the benchmark
-  against real data — everything else for roadmap phase 1 is ready.
-- ~~Benchmark harness~~ — done: `examples/chorale_benchmark.rs`, a simple
-  `.chorale` fixture format (mokuren has no Humdrum `**kern`/MusicXML
-  reader yet — that's roadmap phase 5, paused until this benchmark runs),
-  computes all 7 BENCHMARK.md metrics plus the secondary note-match one,
-  verified against synthetic smoke-test fixtures in
-  `examples/chorale_benchmark_fixtures/`. Not yet done: full distributions
-  (percentiles) rather than means for the numeric metrics.
+- ~~Chorale corpus source~~ — decided 2026-08-10: **music21** (Margaret
+  Greentree's explicit permission for Bach-chorale distribution as part
+  of music21 specifically — see BENCHMARK.md), referenced via
+  `tools/music21_chorale_extractor.py` against a local install, never
+  vendored into this repository.
+- ~~Benchmark harness~~ — done: `examples/chorale_benchmark.rs`, fixture
+  format v2 (duration-aware; v1 forced every note to a quarter, silently
+  discarding real chorale rhythm), computes all 7 BENCHMARK.md metrics
+  plus the secondary note-match one. Validated against both synthetic
+  smoke fixtures and 20 real chorales extracted from music21. Not yet
+  done: full distributions (percentiles) rather than means for the
+  numeric metrics.
+- ~~music21 extraction adapter~~ — done: `tools/music21_chorale_extractor.py`,
+  samples alto/tenor/bass at soprano onsets only (no independent ATB
+  onset grid, so harmonic rhythm can't leak into the input), skips
+  chorales with a soprano rest or an unrepresentable duration rather
+  than approximating, writes a `manifest.json` with source/version/
+  numbering/selected IDs/file hashes for reproducibility.
+- **Remaining**: run the actual major-mode baseline (not the 20-chorale
+  validation sample already done — see BENCHMARK.md's "First validation
+  run"). The validation run found 50% coverage on that small sample, with
+  the one diagnosed failure caused by a non-diatonic (chromatic) soprano
+  tone mokuren's diatonic-only engine can't harmonize — expect the real
+  baseline number to be materially below 100%, which is useful
+  information, not a bug to fix before measuring.
 
 ## Real correctness gaps (tracked in more detail in README "Current limitations")
 
@@ -50,7 +62,7 @@ scope and phasing — this is the flat, scannable version.
 
 - `why()` at position 0 is thin (no previous chord means most soft rules
   contribute no `Reason`). Not wrong, just a weaker demo than mid-progression
-  positions — see README limitation #4.
+  positions — see README limitation #6.
 - Beam search's horizon effect (`BeamSearch::new()` defaults to width 32
   specifically because narrower widths pruned away the eventually-best
   path before `CadenceSupportRule`'s end-loaded reward could matter) means

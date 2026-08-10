@@ -95,3 +95,35 @@ checking each source's own stated terms individually. Lesson: "the
 underlying work is old/public domain" and "this specific file is safe to
 redistribute" are separate questions; answer the second one explicitly,
 per source, before vendoring anything.
+
+## A single synthetic test melody hid a real coverage gap that 20 real chorales found in minutes
+
+The whole reason BENCHMARK.md exists is that mokuren's rules were tuned
+against one melody. That risk turned out to be real, immediately: the
+first 20 real chorales run through the finished harness had only 50%
+coverage, not the ~100% every synthetic fixture and unit test had shown.
+Bisecting one failure to its shortest failing prefix (binary search over
+melody length, six lines of throwaway Rust) found the cause in minutes: a
+non-diatonic soprano tone (a chromatic passing tone or secondary dominant
+mokuren's diatonic-only engine has no chord for) — not a beam-width issue
+(checked up to width 512, still failed), not a bug, just a real scope
+boundary that a hand-picked stepwise test melody was never going to
+exercise. Lesson: when a search-based system reports a bare "no valid
+result" on real data, don't guess at the cause (wider beam? different
+weights?) — bisect the input first. It's cheap (a binary search over
+melody length is a few lines) and turns "something's wrong somewhere" into
+an exact, minimal, explainable repro before touching any code.
+
+## Vendoring risk doesn't end at "pick a licensed source" — the *derived* data can still leak the original
+
+Deciding music21 as the canonical corpus source didn't finish the
+vendoring question. Extracting chorales and writing `.chorale` files is
+itself a redistribution act — committing those output files to mokuren's
+repo would recreate the exact problem "reference, don't vendor" existed to
+avoid, just one layer removed (redistributing a derived encoding instead
+of the original one). The adapter script was safe to commit (it's just
+code, contains no chorale data); its *output* was validated locally and
+then deleted, never committed. Lesson: when the plan is "reference an
+external source, don't vendor it," check every artifact a tool built for
+that reference produces, not just the original source — a derived file
+committed to the repo is still vendoring.

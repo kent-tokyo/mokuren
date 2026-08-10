@@ -1,6 +1,15 @@
-name: Smoke 02 (with reference ATB, exercises the note-match metric)
+name: Smoke 02 (with reference ATB sampled at soprano onsets; ends on a half note)
 key: G
-soprano: G4 G4 A4 B4 A4 G4 F#4 G4
+meter: 4/4
+soprano:
+0 G4 1/4
+1 G4 1/4
+2 A4 1/4
+3 B4 1/4
+4 A4 1/4
+5 G4 1/4
+6 F#4 1/4
+7 G4 1/2
 alto: D4 D4 D4 D4 D4 D4 D4 D4
 tenor: B3 B3 F#3 G3 F#3 B3 D4 B3
 bass: G3 G3 D3 G3 D3 G3 B2 G3

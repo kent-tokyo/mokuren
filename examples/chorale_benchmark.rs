@@ -3,63 +3,155 @@
 //! not whether it matches the original harmonization note-for-note (see
 //! BENCHMARK.md's explicit non-goal).
 //!
-//! No chorale data is vendored in this repository (BENCHMARK.md: license
-//! status of every candidate source was checked, none gave a clean
-//! "commit this" answer — decided 2026-08-10 to reference, not vendor).
-//! Point this at a local directory of chorale fixture files yourself:
+//! No chorale data is vendored in this repository. BENCHMARK.md decided
+//! music21 as the canonical external source (2026-08-10) — its Bach
+//! chorales carry Margaret Greentree's explicit permission for
+//! distribution as part of music21 specifically — but still references
+//! it rather than vendoring: `tools/music21_chorale_extractor.py` reads
+//! your own local music21 install and writes `.chorale` v2 files
+//! nowhere this repository commits them.
 //!
 //!   cargo run --release --example chorale_benchmark -- path/to/chorales
 //!
-//! Fixture format — one `.chorale` file per piece, minimal by design
-//! (mokuren has no Humdrum/MusicXML reader yet; that's roadmap phase 5,
-//! itself paused until this benchmark runs):
+//! Fixture format v2 — one `.chorale` file per piece. `soprano` carries
+//! real onset/pitch/duration (v1 forced every note to a quarter, which
+//! silently discarded real chorale rhythm — see tasks/lessons.md).
+//! `alto`/`tenor`/`bass` are reference pitches *sampled at each soprano
+//! onset*, not an independent onset grid: giving them their own
+//! offsets/durations would leak where Bach changed harmony into data a
+//! benchmark run is supposed to discover, not read off the input.
 //!
 //! ```text
 //! name: <label>
 //! key: <tonic pitch class, e.g. C, F#, Bb>
-//! soprano: <mokuren pitch sequence, e.g. C4 C4 G4 G4>
-//! alto: <optional, same format, for the secondary note-match metric>
-//! tenor: <optional>
-//! bass: <optional>
+//! meter: <e.g. 4/4 — carried through, not yet consumed by any rule>
+//! soprano:
+//! <offset in quarter-note beats> <pitch> <duration, as a fraction of a whole note, e.g. 1/4>
+//! ...one line per note, offsets contiguous (no rests — mokuren's Melody can't represent one yet)
+//!
+//! alto: <optional pitch list, one per soprano onset, e.g. A4 A4 F4 ...>
+//! tenor: <optional, same>
+//! bass: <optional, same>
 //! ```
 //!
 //! `examples/chorale_benchmark_fixtures/` has synthetic smoke-test
 //! fixtures (melodies written for this harness, not real chorales) —
 //! run against those to see the report format without needing a corpus.
 
-use mokuren::melody::Position;
+use mokuren::melody::{Duration as NoteDuration, Note, Position};
+use mokuren::pitch::Pitch;
 use mokuren::prelude::*;
 use mokuren::score::{Cadence, Reason};
 use std::collections::BTreeMap;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 struct ChoraleFixture {
     name: String,
     key: Key,
     soprano: Melody,
-    reference_alto: Option<Vec<mokuren::pitch::Pitch>>,
-    reference_tenor: Option<Vec<mokuren::pitch::Pitch>>,
-    reference_bass: Option<Vec<mokuren::pitch::Pitch>>,
+    reference_alto: Option<Vec<Pitch>>,
+    reference_tenor: Option<Vec<Pitch>>,
+    reference_bass: Option<Vec<Pitch>>,
 }
 
-fn parse_pitches(s: &str) -> std::result::Result<Vec<mokuren::pitch::Pitch>, String> {
+fn parse_pitches(s: &str) -> std::result::Result<Vec<Pitch>, String> {
     s.split_whitespace()
         .map(|tok| tok.parse().map_err(|e| format!("bad pitch {tok:?}: {e}")))
         .collect()
 }
 
+/// Parses `n/d` as a fraction of a whole note (`1/4` = quarter = 1.0
+/// beat, `3/8` = dotted quarter = 1.5 beats) into a `NoteDuration`.
+fn parse_duration(s: &str) -> std::result::Result<NoteDuration, String> {
+    let (num, den) = s
+        .split_once('/')
+        .ok_or_else(|| format!("expected `n/d`, got {s:?}"))?;
+    let num: f64 = num.parse().map_err(|_| format!("bad numerator in {s:?}"))?;
+    let den: f64 = den
+        .parse()
+        .map_err(|_| format!("bad denominator in {s:?}"))?;
+    let beats = 4.0 * num / den;
+    NoteDuration::from_beats(beats)
+        .ok_or_else(|| format!("{s:?} ({beats} beats) has no representable Duration"))
+}
+
+/// One `offset pitch duration` line inside a `soprano:` block.
+struct SopranoEvent {
+    offset: f64,
+    note: Note,
+}
+
+fn parse_soprano_event(line: &str) -> std::result::Result<SopranoEvent, String> {
+    let mut tokens = line.split_whitespace();
+    let (Some(offset), Some(pitch), Some(duration), None) =
+        (tokens.next(), tokens.next(), tokens.next(), tokens.next())
+    else {
+        return Err(format!("expected `offset pitch duration`, got {line:?}"));
+    };
+    let offset: f64 = offset
+        .parse()
+        .map_err(|_| format!("bad offset in {line:?}"))?;
+    let pitch: Pitch = pitch
+        .parse()
+        .map_err(|e| format!("bad pitch in {line:?}: {e}"))?;
+    let duration = parse_duration(duration)?;
+    Ok(SopranoEvent {
+        offset,
+        note: Note::new(pitch, duration),
+    })
+}
+
+/// Builds a contiguous `Melody` from parsed events, verifying each
+/// event's offset lines up exactly with the previous one's end — a
+/// rest or overlap means this soprano line can't be represented by
+/// mokuren's `Melody` (a plain `Vec<Note>`, no rests) and is a data
+/// error worth surfacing rather than silently misaligning.
+fn build_soprano_melody(events: &[SopranoEvent]) -> std::result::Result<Melody, String> {
+    if events.is_empty() {
+        return Err("soprano block has no events".to_string());
+    }
+    let mut expected_offset = events[0].offset;
+    for event in events {
+        if (event.offset - expected_offset).abs() > 1e-6 {
+            return Err(format!(
+                "soprano offset {} doesn't follow the previous note's end ({expected_offset}) — a rest, overlap, or out-of-order line, none of which mokuren's Melody can represent",
+                event.offset
+            ));
+        }
+        expected_offset += event.note.duration.beats();
+    }
+    Ok(Melody::new(events.iter().map(|e| e.note).collect()))
+}
+
 fn parse_chorale_fixture(text: &str) -> std::result::Result<ChoraleFixture, String> {
-    let (mut name, mut key, mut soprano) = (None, None, None);
+    let (mut name, mut key, mut meter) = (None, None, None);
     let (mut alto, mut tenor, mut bass) = (None, None, None);
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
+    let mut soprano_events: Vec<SopranoEvent> = Vec::new();
+    let mut in_soprano_block = false;
+
+    for raw_line in text.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            in_soprano_block = false;
+            continue;
+        }
+        if line.starts_with('#') {
+            continue;
+        }
+        const KNOWN_FIELDS: [&str; 7] =
+            ["name", "key", "meter", "soprano", "alto", "tenor", "bass"];
+        let starts_new_field = line
+            .split_once(':')
+            .is_some_and(|(field, _)| KNOWN_FIELDS.contains(&field.trim()));
+        if in_soprano_block && !starts_new_field {
+            soprano_events.push(parse_soprano_event(line)?);
             continue;
         }
         let (field, value) = line
             .split_once(':')
             .ok_or_else(|| format!("expected `field: value`, got {line:?}"))?;
         let value = value.trim();
+        in_soprano_block = false;
         match field.trim() {
             "name" => name = Some(value.to_string()),
             "key" => {
@@ -71,19 +163,20 @@ fn parse_chorale_fixture(text: &str) -> std::result::Result<ChoraleFixture, Stri
                         .map_err(|e| format!("key {value:?} is not constructible: {e}"))?,
                 );
             }
-            "soprano" => {
-                soprano = Some(Melody::parse(value).map_err(|e| format!("bad soprano: {e}"))?)
-            }
+            "meter" => meter = Some(value.to_string()),
+            "soprano" => in_soprano_block = true,
             "alto" => alto = Some(parse_pitches(value)?),
             "tenor" => tenor = Some(parse_pitches(value)?),
             "bass" => bass = Some(parse_pitches(value)?),
             other => return Err(format!("unknown field {other:?}")),
         }
     }
+
+    let _meter = meter; // carried through for future use; not consumed by any rule yet.
     Ok(ChoraleFixture {
         name: name.ok_or("missing `name:`")?,
         key: key.ok_or("missing `key:`")?,
-        soprano: soprano.ok_or("missing `soprano:`")?,
+        soprano: build_soprano_melody(&soprano_events)?,
         reference_alto: alto,
         reference_tenor: tenor,
         reference_bass: bass,
@@ -97,7 +190,7 @@ struct ChoraleMetrics {
     hard_violations: usize,
     final_cadence: Option<Cadence>,
     voice_leading_cost_total: u32,
-    runtime: Duration,
+    runtime: std::time::Duration,
     positions_with_reasons: usize,
     why_not_attempts: usize,
     why_not_successes: usize,
@@ -240,7 +333,7 @@ fn print_report(metrics: &[ChoraleMetrics]) {
             total_vlc as f64 / total_positions.max(1) as f64
         );
 
-        let total_runtime: Duration = covered_metrics.iter().map(|m| m.runtime).sum();
+        let total_runtime: std::time::Duration = covered_metrics.iter().map(|m| m.runtime).sum();
         println!(
             "Runtime:               {:.1}ms avg per chorale ({:.1}ms total)",
             total_runtime.as_secs_f64() * 1000.0 / covered_metrics.len() as f64,

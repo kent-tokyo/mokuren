@@ -1,3 +1,10 @@
 /target
 .claude/settings.local.json
 *.proptest-regressions
+
+# tools/music21_chorale_extractor.py output must never be vendored
+# (BENCHMARK.md: "reference, don't vendor") — this is a safety net in
+# case someone points -o at a path inside the repo by mistake.
+/chorales/
+/corpus/
+manifest.json

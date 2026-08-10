@@ -5,15 +5,22 @@ use crate::pitch::Pitch;
 use crate::voice::VoicePart;
 use std::fmt;
 
-/// Note duration relative to a quarter note. v0.1 only needs enough to
-/// support the equal-duration melodies in the spine; a full rational
-/// duration type can replace this if irregular rhythms are needed later.
+/// Note duration relative to a quarter note. Extended (2026-08-10) with
+/// dotted variants after the chorale benchmark's real rhythm data — not
+/// the synthetic equal-duration spine melody — showed dotted quarters
+/// and dotted halves are common (chorale phrase-ending fermatas in
+/// particular). Still a closed enum, not a general rational duration:
+/// nothing in this crate needs tuplets, and Common Practice chorale
+/// writing doesn't produce them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Duration {
     Whole,
+    DottedHalf,
     Half,
+    DottedQuarter,
     #[default]
     Quarter,
+    DottedEighth,
     Eighth,
     Sixteenth,
 }
@@ -23,11 +30,33 @@ impl Duration {
     pub fn beats(&self) -> f64 {
         match self {
             Duration::Whole => 4.0,
+            Duration::DottedHalf => 3.0,
             Duration::Half => 2.0,
+            Duration::DottedQuarter => 1.5,
             Duration::Quarter => 1.0,
+            Duration::DottedEighth => 0.75,
             Duration::Eighth => 0.5,
             Duration::Sixteenth => 0.25,
         }
+    }
+
+    /// The `Duration` whose `beats()` exactly matches, if any — used to
+    /// parse an external duration (e.g. a chorale benchmark fixture's
+    /// note-value fraction) back into this closed vocabulary.
+    pub fn from_beats(beats: f64) -> Option<Duration> {
+        const EPSILON: f64 = 1e-9;
+        [
+            Duration::Whole,
+            Duration::DottedHalf,
+            Duration::Half,
+            Duration::DottedQuarter,
+            Duration::Quarter,
+            Duration::DottedEighth,
+            Duration::Eighth,
+            Duration::Sixteenth,
+        ]
+        .into_iter()
+        .find(|d| (d.beats() - beats).abs() < EPSILON)
     }
 }
 
@@ -189,5 +218,22 @@ mod tests {
             m.measure_and_beat(Position(6), &Meter::FOUR_FOUR),
             (Measure(1), Beat(2))
         );
+    }
+
+    #[test]
+    fn duration_from_beats_round_trips_and_rejects_unrepresentable_values() {
+        for d in [
+            Duration::Whole,
+            Duration::DottedHalf,
+            Duration::Half,
+            Duration::DottedQuarter,
+            Duration::Quarter,
+            Duration::DottedEighth,
+            Duration::Eighth,
+            Duration::Sixteenth,
+        ] {
+            assert_eq!(Duration::from_beats(d.beats()), Some(d));
+        }
+        assert_eq!(Duration::from_beats(1.0 / 3.0), None); // a triplet: not representable
     }
 }

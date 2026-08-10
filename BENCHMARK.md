@@ -2,11 +2,13 @@
 
 This is the "fix the protocol before running it" document requested alongside the ROADMAP.md landscape update. It fixes *what* the benchmark measures and *what corpus it's allowed to touch*. No chorale data is vendored into this repository — see [Corpus source](#corpus-source-approach-decided-specific-source-still-open) below.
 
-**Status**: the harness itself is implemented — `examples/chorale_benchmark.rs`, verified against synthetic smoke-test fixtures in `examples/chorale_benchmark_fixtures/` (written for this repo, not real chorales). Run it: `cargo run --release --example chorale_benchmark -- examples/chorale_benchmark_fixtures`. What's still missing is a real corpus to point it at — the specific source is tracked as open in `tasks/todo.md`.
+**Status**: the harness (`examples/chorale_benchmark.rs`) and the music21 extraction adapter (`tools/music21_chorale_extractor.py`) are both implemented and validated end to end against 20 real chorales extracted from a local music21 install — see [First validation run](#first-validation-run-not-the-baseline) below for what that surfaced. The full major-mode baseline (all major-mode chorales, not a 20-chorale sample) is still a deliberate next step, not done as a side effect of this validation pass.
+
+Fixture format is v2 (duration-aware; v1 forced every note to a quarter, silently discarding real chorale rhythm — see `tasks/lessons.md`). Full spec is documented in `examples/chorale_benchmark.rs`'s module doc comment; `cargo doc --open` or read the file directly.
 
 ## Purpose
 
-Measure whether mokuren's reasoning generalizes to melodies it was never tuned against. README limitation #3 is explicit: every score weight was hand-adjusted against **one** melody (the AGENTS.md section-1 spine). Adding theory scope (minor mode, secondary dominants, more output formats) on top of an unvalidated weight set doesn't reduce that risk, it just gives the untested weights more surface area. This benchmark is how that risk gets retired — or doesn't, which is itself the useful outcome.
+Measure whether mokuren's reasoning generalizes to melodies it was never tuned against. README limitation #4 is explicit: every score weight was hand-adjusted against **one** melody (the AGENTS.md section-1 spine). Adding theory scope (minor mode, secondary dominants, more output formats) on top of an unvalidated weight set doesn't reduce that risk, it just gives the untested weights more surface area. This benchmark is how that risk gets retired — or doesn't, which is itself the useful outcome — and, per the first validation run below, already has: it found a real coverage gap in under an hour.
 
 ## Explicit non-goal
 
@@ -24,7 +26,7 @@ A single "accuracy" number would hide exactly the information this benchmark exi
 | **Voice-leading cost** | `EvaluatedCandidate::voice_leading_cost` summed over the winning path — lower is smoother, and this is directly comparable to music-comp-mt's "total movement" metric for the head-to-head phase. |
 | **Search failure rate** | How often beam search returns `Err` (width too narrow, or genuinely no valid path) vs. succeeds — and at what beam width failures stop happening. |
 | **Runtime** | Wall-clock per chorale at a fixed beam width, building on `benches/harmonize.rs`'s existing melody-length-scaling numbers with real (not synthetic-repeated) melodies. |
-| **Explanation completeness** | Fraction of positions where `why()` returns at least one `Reason` (README limitation #4 already documents position 0 as thin — this quantifies exactly how thin, across a real corpus) and fraction of positions where `why_not()` resolves successfully for at least one valid alternative. |
+| **Explanation completeness** | Fraction of positions where `why()` returns at least one `Reason` (README limitation #6 already documents position 0 as thin — this quantifies exactly how thin, across a real corpus) and fraction of positions where `why_not()` resolves successfully for at least one valid alternative. |
 | *(secondary)* **Original-note match** | Rate at which mokuren's selected voicing's pitch classes coincide with the original chorale's alto/tenor/bass — diagnostic only, never the headline metric, per the non-goal above. |
 
 ## Methodology
@@ -36,7 +38,15 @@ Implemented in `examples/chorale_benchmark.rs`:
 3. Record all seven metrics above from the `HarmonizationResult` (`Decision`s, timing).
 4. Aggregate per-chorale results and print a report (mean voice-leading cost/runtime/explanation coverage, coverage and search-failure rates, `why_not()` success rate, a full cadence-type distribution rather than one number, and a per-chorale breakdown for spotting outliers).
 
-Not yet implemented: reporting full distributions (percentiles, not just means) for the numeric metrics, and meter — the fixture format and harness currently assume the melody's own note durations are enough context, matching v0.1's own scope (mokuren doesn't yet reason about meter/phrase position beyond "is this the final position").
+Not yet implemented: reporting full distributions (percentiles, not just means) for the numeric metrics, and meter — the fixture format and harness currently carry the meter field through but no rule consumes it yet, matching v0.1's own scope (mokuren doesn't yet reason about meter/phrase position beyond "is this the final position").
+
+## First validation run (not the baseline)
+
+Ran `tools/music21_chorale_extractor.py --limit 20` against a local music21 install (v9.9.1) and fed the output straight to `examples/chorale_benchmark.rs`, purely to confirm the pipeline works end to end against real data before treating it as ready for the actual major-mode baseline. It's not that baseline — 20 chorales, not the full major-mode subset, and picked by iteration order, not deliberately sampled. Extracted output was not committed (per "reference, don't vendor" — see below); only what it revealed is recorded here.
+
+**Coverage was 50% (10/20)**, and diagnosing one failure precisely (bisecting the soprano line to the shortest failing prefix, then checking `Diagnostics`) found a specific, expected cause: Riemenschneider 2 ("Ich dank' dir, lieber Herre," A major) fails to harmonize starting at its 6th soprano note, a G natural — which is not a diatonic tone in A major (only G# is; A major's diatonic scale has no plain G). No hard-rule combination is at fault and no beam width fixes it (checked up to 512) — mokuren's engine is diatonic-only by design (AGENTS.md section 5), so a chromatic tone (most likely a secondary dominant — G natural is exactly what an applied A7 resolving to IV=D major would need — or a chromatic passing/neighbor tone) has no diatonic chord that contains it, in any key.
+
+This is the roadmap's "secondary dominants" phase (4) validated as mattering before being built, from real data rather than from reading AGENTS.md section 20 and guessing it would matter eventually. It's also a caution about magnitude: half of a 20-chorale sample failing entirely (not "harmonized poorly" — zero output) suggests chromatic content is common enough in real chorale writing that the major-mode baseline, once run properly, may show a coverage number well below 100% even before minor-mode chorales are considered. That's exactly the kind of number this benchmark exists to produce — not a reason to route around it by only testing chorales known to be fully diatonic.
 
 ## Phasing
 

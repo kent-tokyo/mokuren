@@ -44,7 +44,7 @@ Done since the first pass (Phase 7 "thicken" work, tracked here rather than
 opening a second plan doc):
 - `UnpreparedSixFourRule` — the initial spine let the search open a phrase
   on an unrestricted I64, which isn't legal Common Practice writing; see
-  README "Current limitations" #1 for what this rule does and doesn't cover.
+  README "Current limitations" #2 for what this rule does and doesn't cover.
 - `tests/properties.rs` (`proptest`, spec: "可能なら"): pitch-class
   normalization, interval symmetry, chord-spelling round trip, and key
   scale-degree round trip. Scoped to the (root, quality) space
@@ -61,7 +61,7 @@ opening a second plan doc):
   lets alto/tenor skip down a step or third to complete the chord
   instead of resolving up, matching the standard textbook relaxation.
   Outer voices (soprano/bass) are unchanged (strict). Narrower than
-  real pedagogy still — see README "Current limitations" #7 — the
+  real pedagogy still — see README "Current limitations" #8 — the
   exception is unconditional here rather than "only when resolving up
   would leave the chord incomplete."
 - Fail-closed pitch spelling: `spell_above`/`accidental_for_offset` used
@@ -81,13 +81,28 @@ opening a second plan doc):
 - `examples/chorale_benchmark.rs` + `BENCHMARK.md`: the roadmap was
   reordered (see ROADMAP.md's "Verification-first phase") to measure
   reasoning quality against unseen melodies before adding more theory
-  scope, since README limitation #3 (hand-tuned weights, one melody) is a
+  scope, since README limitation #4 (hand-tuned weights, one melody) is a
   bigger risk than missing features. The harness computes all 7 protocol
-  metrics against a simple `.chorale` fixture format and is verified
-  against synthetic smoke-test fixtures; it isn't yet pointed at a real
-  corpus because none of the four candidate sources checked gave a clean
-  "commit this to the repo" answer on licensing (`BENCHMARK.md` has the
-  detail) — specific source selection is tracked in `tasks/todo.md`.
+  metrics against a duration-aware `.chorale` v2 fixture format (v1
+  forced every note to a quarter, silently discarding real chorale
+  rhythm — see `tasks/lessons.md`).
+- `tools/music21_chorale_extractor.py`: decided music21 as the canonical
+  external corpus source (Margaret Greentree's explicit permission for
+  Bach-chorale distribution as part of music21 — `BENCHMARK.md` has the
+  detail from the other three candidates that didn't clear licensing).
+  Samples alto/tenor/bass at soprano onsets only, by construction — no
+  independent ATB timeline exists to leak Bach's own harmonic-rhythm
+  decisions into a benchmark that's supposed to discover them. Writes a
+  `manifest.json` (source/version/numbering/selected IDs/file hashes)
+  for reproducibility. Its *output* is not committed — extracting and
+  running against 20 real chorales (validated the whole pipeline, found
+  50% coverage, see `BENCHMARK.md`'s "First validation run") happened in
+  a scratch directory outside the repo, then was deleted; only the code
+  and the finding are kept.
+- `Duration` (src/melody.rs) gained dotted variants (`DottedHalf`,
+  `DottedQuarter`, `DottedEighth`) — the real chorale data needed them
+  and nothing in the rule engine reads `Duration` for any decision, so
+  this was a safe, contained extension, not a behavior change.
 
 ## Phases (AGENTS.md section 29, adapted to depth-first order)
 
