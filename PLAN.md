@@ -144,6 +144,34 @@ opening a second plan doc):
     moment applied dominants existed, so the check now asks whether the
     tone is a chord tone of *any* implemented chord (diatonic or applied
     dominant), not just the plain diatonic scale.
+  - The 144-chorale re-run (coverage 91.7%) left 6 chorales classified
+    `Other` (undiagnosed). Bisecting them found the *bisection tool*
+    had the exact same is_final bug as the spine-melody one above, one
+    level removed: it isolated a failure point by harmonizing a
+    *truncated* melody, which made the truncation point look
+    artificially final to the search, wrongly triggering
+    `SecondaryDominantResolutionRule`'s final-position rejection at
+    positions that aren't final in the real piece. Fixed by replaying
+    the full melody's search up to the actual failure point instead
+    (`replay_to_failure` in `examples/chorale_benchmark.rs`, correctly
+    `is_final: false` for every position except the melody's true last
+    one) — see `tasks/lessons.md`. With that fixed, 3 of the 6
+    (Riemenschneider 102, 173, 327) shared one more real bug: the rule
+    required resolution at the very *next* position unconditionally, so
+    a chromatic tone held/repeated across two notes before resolving
+    (common) had nowhere to go on its second occurrence. Fixed:
+    prolonging the *same* applied dominant across a repeat no longer
+    counts as an unresolved dangling dominant — the obligation to
+    resolve only applies once the harmony actually changes away from
+    it. Raised coverage from 91.7% to 94.4% (136/144).
+  - The remaining 2 of those 6 (Riemenschneider 40, 202) are a real,
+    unfixed gap: the soprano is forced into a formal chordal-seventh
+    role requiring step-down resolution, but the actual melody leaps a
+    third — almost certainly Bach using the note as a decorative
+    non-chord (passing) tone, which mokuren has no model for at all.
+    Not attempted this pass (`tasks/todo.md`) — a genuinely different
+    kind of extension (letting a soprano note sit outside the chord)
+    from what secondary dominants added (more chords to choose from).
 - Voice-range investigation (roadmap phase 5): root-caused all 5 of the
   baseline's "voice range" failures to the same cause — a soprano note
   on A5, one step above `VoicePart::Soprano`'s old default ceiling (G5).

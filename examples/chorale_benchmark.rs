@@ -280,62 +280,135 @@ fn harmonizes_at_width(fixture: &ChoraleFixture, width: usize) -> bool {
         .is_ok()
 }
 
-/// Finds the shortest prefix (by note count) of `fixture`'s soprano line
-/// that still fails to harmonize at `width` — binary search over melody
-/// length, each step a fresh full search. `full_length` must already be
-/// known to fail at `width`.
-fn shortest_failing_prefix(fixture: &ChoraleFixture, width: usize, full_length: usize) -> usize {
-    let (mut lo, mut hi) = (1usize, full_length);
-    while lo < hi {
-        let mid = (lo + hi) / 2;
-        let prefix = Melody::new(fixture.soprano.notes[..mid].to_vec());
-        let ok = Composer::new()
-            .key(fixture.key)
-            .style(Style::CommonPractice)
-            .search(BeamSearch::new().width(width))
-            .harmonize(prefix)
-            .is_ok();
-        if ok {
-            lo = mid + 1;
-        } else {
-            hi = mid;
-        }
-    }
-    lo
+type NumeralRank = (u8, u8, u8, u8);
+type VoicingRank = (i32, i32, i32, i32);
+type PathEntry = (Vec<(RomanNumeral, Voicing)>, f64, u32);
+
+/// Canonical (RomanNumeral, Voicing) ranking key — duplicated from
+/// `search::path_key`/`generate::canonical_rank` (both private to their
+/// modules) since `replay_to_failure` below needs to reproduce
+/// `BeamSearch`'s *exact* tie-break chain, not an approximation of it.
+fn numeral_voicing_key(rn: &RomanNumeral, v: &Voicing) -> (NumeralRank, VoicingRank) {
+    (
+        (
+            rn.degree.0,
+            rn.quality as u8,
+            rn.inversion as u8,
+            rn.applied_to.map_or(0, |d| d.0),
+        ),
+        (
+            v.soprano.midi(),
+            v.alto.midi(),
+            v.tenor.midi(),
+            v.bass.midi(),
+        ),
+    )
 }
 
-/// Diagnoses a structural (non-search-breadth) failure: harmonizes the
-/// one-shorter prefix (known to succeed, by construction of
-/// `shortest_failing_prefix`), takes its winning path's final chord as
-/// context, and asks `CandidateGenerator` directly what it thinks of the
-/// next soprano note in that context. This is a representative sample
-/// (the one context a successful shorter search actually reached), not
-/// an exhaustive proof that *no* context could work — sufficient to
-/// tell a triage report which rule to look at first.
-fn diagnose_structural_failure(fixture: &ChoraleFixture, width: usize) -> FailureCategory {
-    let failing_len = shortest_failing_prefix(fixture, width, fixture.soprano.len());
-    if failing_len <= 1 {
-        // Fails on the very first note: no previous context to inspect.
-        return FailureCategory::Other;
+/// Replays beam search over `fixture`'s soprano melody at `width`, one
+/// position at a time, and reports the *first* position where the beam
+/// empties out — the exact structural failure point — along with the
+/// winning path's context reaching it (`None` context at position 0).
+/// Returns `None` if the melody never actually gets stuck (shouldn't
+/// happen given every caller only invokes this after confirming
+/// `harmonizes_at_width(fixture, width)` is `false`).
+///
+/// This replaces an earlier version that bisected by harmonizing
+/// *truncated* melodies directly: whatever prefix length was being
+/// tested there had its own last note treated as the final position by
+/// the search (`BeamSearch` computes `is_final` from the melody it's
+/// given), incorrectly triggering `CadenceSupportRule` and — worse,
+/// once `SecondaryDominantResolutionRule` existed — its "no applied
+/// dominant at the final position" rejection at a position that isn't
+/// actually final in the real piece. That made truncation-based
+/// bisection systematically over-report failures wherever the true
+/// continuation happened to need an applied dominant, since *every*
+/// candidate at an artificially-final position would be rejected
+/// outright regardless of context. Replaying `is_final = false` for
+/// every position except the real final index (which this function
+/// only reaches if the melody doesn't actually get stuck) avoids that
+/// entirely — see `tasks/lessons.md`.
+///
+/// Ranks paths with the *same* tie-break chain as `BeamSearch`
+/// (cumulative score, then cumulative voice-leading cost, then
+/// canonical Roman-numeral/voicing order) — sorting by score alone
+/// isn't enough: on a genuine tie, a different tie-break would keep a
+/// different top-`width` set than the real search actually kept,
+/// silently diagnosing a context the real run never reached.
+fn replay_to_failure(
+    fixture: &ChoraleFixture,
+    width: usize,
+) -> Option<(usize, Option<(RomanNumeral, Voicing)>)> {
+    let generator = CandidateGenerator::new(&fixture.key, &Style::CommonPractice);
+    let mut diagnostics = Diagnostics::default();
+    // (path, cumulative_score, cumulative_voice_leading_cost).
+    let mut beam: Vec<PathEntry> = vec![(Vec::new(), 0.0, 0)];
+    let len = fixture.soprano.len();
+    for index in 0..len {
+        let soprano = fixture.soprano.pitch_at(Position(index))?;
+        let is_final = index == len - 1;
+        let mut next_beam = Vec::new();
+        for (path, cumulative, cumulative_vlc) in &beam {
+            let previous = path.last().map(|(_, v)| v);
+            let previous_rn = path.last().map(|(rn, _)| rn);
+            let candidates =
+                generator.generate(soprano, previous, previous_rn, is_final, &mut diagnostics);
+            for candidate in candidates.into_iter().filter(|c| c.is_valid()) {
+                let mut extended = path.clone();
+                extended.push((candidate.roman_numeral, candidate.voicing));
+                next_beam.push((
+                    extended,
+                    cumulative + candidate.score.total(),
+                    cumulative_vlc + candidate.voice_leading_cost,
+                ));
+            }
+        }
+        if next_beam.is_empty() {
+            let context = beam
+                .into_iter()
+                .next()
+                .and_then(|(path, _, _)| path.last().copied());
+            return Some((index, context));
+        }
+        next_beam.sort_by(|a, b| {
+            b.1.total_cmp(&a.1)
+                .then_with(|| a.2.cmp(&b.2))
+                .then_with(|| {
+                    let a_key: Vec<_> =
+                        a.0.iter()
+                            .map(|(rn, v)| numeral_voicing_key(rn, v))
+                            .collect();
+                    let b_key: Vec<_> =
+                        b.0.iter()
+                            .map(|(rn, v)| numeral_voicing_key(rn, v))
+                            .collect();
+                    a_key.cmp(&b_key)
+                })
+        });
+        next_beam.truncate(width);
+        beam = next_beam;
     }
-    let shorter_prefix = Melody::new(fixture.soprano.notes[..failing_len - 1].to_vec());
-    let Ok(shorter_result) = Composer::new()
-        .key(fixture.key)
-        .style(Style::CommonPractice)
-        .search(BeamSearch::new().width(width))
-        .harmonize(shorter_prefix)
-    else {
+    None
+}
+
+/// Diagnoses a structural (non-search-breadth) failure: replays the
+/// real search up to its actual failure point (`replay_to_failure`) and
+/// asks `CandidateGenerator` directly what it thinks of the failing
+/// note in that exact context. This is a representative sample (the
+/// one context a correctly-replayed search actually reaches), not an
+/// exhaustive proof that *no* context could work — sufficient to tell a
+/// triage report which rule to look at first.
+fn diagnose_structural_failure(fixture: &ChoraleFixture, width: usize) -> FailureCategory {
+    let Some((failing_index, context)) = replay_to_failure(fixture, width) else {
         return FailureCategory::Other; // shouldn't happen by construction, but fail safe
     };
-    let Some(last_decision) = shorter_result.decisions.last() else {
+    let Some((previous_rn, previous_voicing)) = context else {
+        // Fails on the very first note: no previous context to inspect.
         return FailureCategory::Other;
     };
-    let last_candidate = last_decision.selected_candidate();
-    let previous_voicing: Voicing = last_candidate.voicing;
-    let previous_rn = last_candidate.roman_numeral;
 
-    let failing_note = fixture.soprano.notes[failing_len - 1];
-    let is_final = failing_len == fixture.soprano.len();
+    let failing_note = fixture.soprano.notes[failing_index];
+    let is_final = failing_index == fixture.soprano.len() - 1;
     let style = Style::CommonPractice;
     let generator = CandidateGenerator::new(&fixture.key, &style);
     let mut diagnostics = Diagnostics::default();
@@ -887,13 +960,84 @@ fn build_report(metrics: &[ChoraleMetrics], provenance: &Provenance) -> String {
     out
 }
 
+/// Prints a detailed bisection report for one fixture: the exact
+/// structural failure point and context (via `replay_to_failure`, so
+/// this matches what `classify_failure` itself sees), candidate count,
+/// and rejection-rule tally, at both the standard width and every retry
+/// width — so "beam-width independence" (does a wider beam change the
+/// failure point at all?) is a directly observed fact, not inferred.
+fn bisect_report(fixture: &ChoraleFixture) {
+    println!("=== {} ===", fixture.name);
+    println!("key: {}", fixture.key);
+    println!("soprano length: {} notes", fixture.soprano.len());
+
+    for &width in std::iter::once(&STANDARD_WIDTH).chain(RETRY_WIDTHS.iter()) {
+        if harmonizes_at_width(fixture, width) {
+            println!("width {width}: SUCCEEDS");
+            continue;
+        }
+        let Some((failing_index, context)) = replay_to_failure(fixture, width) else {
+            println!(
+                "width {width}: FAILS but replay_to_failure found no stuck position (shouldn't happen by construction)"
+            );
+            continue;
+        };
+        println!("width {width}: FAILS at position {failing_index} (0-indexed)");
+        let Some((previous_rn, previous_voicing)) = context else {
+            println!("  fails on the very first note: no previous context to inspect");
+            continue;
+        };
+        println!(
+            "  last successful position: {} (0-indexed)",
+            failing_index - 1
+        );
+        let failing_note = fixture.soprano.notes[failing_index];
+        println!(
+            "  failing note (position {failing_index}): {}",
+            failing_note.pitch
+        );
+        println!(
+            "  context: previous numeral {previous_rn}, previous voicing {previous_voicing:?}"
+        );
+        let is_final = failing_index == fixture.soprano.len() - 1;
+        let generator = CandidateGenerator::new(&fixture.key, &Style::CommonPractice);
+        let mut diagnostics = Diagnostics::default();
+        let candidates = generator.generate(
+            failing_note.pitch,
+            Some(&previous_voicing),
+            Some(&previous_rn),
+            is_final,
+            &mut diagnostics,
+        );
+        println!("  candidates generated: {}", candidates.len());
+        let mut rule_counts: BTreeMap<RuleId, usize> = BTreeMap::new();
+        let mut any_valid = false;
+        for candidate in &candidates {
+            match &candidate.status {
+                CandidateStatus::Valid => any_valid = true,
+                CandidateStatus::Rejected(rules) => {
+                    for rule in rules {
+                        *rule_counts.entry(*rule).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+        println!("  any valid candidate in this context: {any_valid}");
+        let mut counts: Vec<_> = rule_counts.into_iter().collect();
+        counts.sort_by_key(|b| std::cmp::Reverse(b.1));
+        println!("  rejection-rule tally: {counts:?}");
+    }
+}
+
 fn main() {
     let mut dir = None;
     let mut report_path: Option<String> = None;
+    let mut bisect: Option<String> = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--report" => report_path = args.next(),
+            "--bisect" => bisect = args.next(),
             other if dir.is_none() => dir = Some(other.to_string()),
             other => {
                 eprintln!("unexpected argument: {other:?}");
@@ -943,6 +1087,21 @@ fn main() {
     if fixtures.is_empty() {
         eprintln!("no .chorale fixtures found in {dir:?}");
         std::process::exit(1);
+    }
+
+    if let Some(needle) = bisect {
+        let matches: Vec<_> = fixtures
+            .iter()
+            .filter(|f| f.name.contains(&needle))
+            .collect();
+        if matches.is_empty() {
+            eprintln!("no fixture name contains {needle:?}");
+            std::process::exit(1);
+        }
+        for fixture in matches {
+            bisect_report(fixture);
+        }
+        return;
     }
 
     eprintln!("measuring {} fixture(s)...", fixtures.len());

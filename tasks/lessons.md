@@ -221,3 +221,39 @@ Lesson: `comm`/`sort -c` default to byte-wise comparison; `sort -n` and
 output looks too large or too small to be plausible, don't rationalize
 it — check whether the tool's comparison order actually matches the
 sort order fed into it.
+
+## A diagnostic tool that truncates its input can inherit the exact bug it's trying to diagnose
+
+`examples/chorale_benchmark.rs`'s failure bisection worked by harmonizing
+a *truncated* prefix of the failing melody to find "the last context that
+still worked," then asking `CandidateGenerator` what it thought of the
+next note there. This looked sound and had already found real bugs
+earlier in this session (the voice-range ceiling). But once
+`SecondaryDominantResolutionRule` existed — a rule whose behavior
+depends on `is_final_position` — the truncation itself became a bug
+source: `BeamSearch` computes `is_final` from the length of whatever
+melody it's handed, so the truncated prefix's own last note looked
+final to the search *only because the tool cut the melody there*, not
+because it's final in the real piece. That silently triggered the
+"no applied dominant at the final position" rejection at positions that
+aren't actually final, making the tool systematically over-report
+structural failures wherever the true continuation needed an applied
+dominant — independent of whether the real full-length search would
+have succeeded there. Caught by noticing the diagnosis ("any valid
+candidate: true") contradicted the fact that the real, full-length
+harmonize() call still failed overall — a real bug can't produce a
+report claiming victory conditions the actual run never reached.
+Fixed by replaying the *full* melody's search up to the real failure
+point (`replay_to_failure`) instead of truncating and re-harmonizing.
+
+**The pattern**: any tool that isolates a sub-case by *slicing the
+input* (a melody prefix, a request replay, a log window) can silently
+change which code paths fire if the underlying system's behavior
+depends on boundary conditions (first/last, is-this-the-end,
+timeouts) — the slice boundary can masquerade as a real boundary the
+system cares about. When a diagnostic tool and the system it's
+diagnosing share a codebase, a new feature in the system can retroactively
+break an assumption the diagnostic tool was built on, without either one's
+own tests catching it (the tool's *own* correctness isn't covered by the
+library's test suite). Treat diagnostic/debugging tooling as needing the
+same scrutiny as production code when the system it inspects changes.

@@ -188,4 +188,31 @@ mod tests {
             "expected an applied dominant at the F#4 position, got {chromatic_position}"
         );
     }
+
+    #[test]
+    fn held_applied_dominant_tone_resolves_after_prolongation() {
+        // G#4 is the leading tone of A (vi in C major), reachable only
+        // via V/vi or V7/vi. Held across two consecutive notes before
+        // resolving up to A4 — this exact pattern (a chromatic tone
+        // tied/repeated before resolving) made a real Bach chorale
+        // (Riemenschneider 102, D#5 held across two notes in G major)
+        // structurally unharmonizable before
+        // SecondaryDominantResolutionRule was taught to allow
+        // prolonging the same applied dominant across a repeat instead
+        // of demanding resolution at every single position.
+        let melody = Melody::parse("E4 G#4 G#4 A4").unwrap();
+        let result = Composer::new()
+            .key(Key::C_MAJOR)
+            .style(Style::CommonPractice)
+            .harmonize(melody)
+            .unwrap();
+        assert!(
+            result
+                .decisions
+                .iter()
+                .all(|d| d.selected_candidate().is_valid())
+        );
+        assert!(result.decisions[1].selected().applied_to.is_some());
+        assert!(result.decisions[2].selected().applied_to.is_some());
+    }
 }

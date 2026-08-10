@@ -39,34 +39,74 @@ scope and phasing — this is the flat, scannable version.
   soprano-range fix~~ — done 2026-08-11: coverage 50.7% → 91.7%
   (73 → 132/144), 0 hard-rule violations maintained. Regression-checked
   per-chorale against `tasks/baseline-v0.1.0.md`: 4 chorales that used to
-  succeed at width 32 don't anymore (vocabulary roughly doubling means
-  more beam-slot competition), but all 4 were individually confirmed to
-  still succeed at a wider beam (2 at width 64, 2 at width 512) — not a
-  new structural failure, the same known beam-width trade-off. Full
-  result: `tasks/baseline-v0.2.0-secondary-dominants.md`, summarized in
-  BENCHMARK.md.
-- **Next, per this baseline's own data**: minor mode is now roadmap
-  phase 3, and the cadential-6/4 lookahead stays deprioritized — 0 of
-  the original 144 baseline failures traced to that rule. Also open:
-  75/371 chorales (20.2%) excluded because `Melody` can't represent a
-  soprano rest (roadmap phase 4, comparable in size to minor mode's
-  exclusion count of 143/371, 38.5%); and the 6 chorales still failing
-  as `Other`/undiagnosed even at width 512 in the new baseline — not yet
-  individually root-caused, likely a mix of chromatic tones outside the
-  implemented V/x, V7/x set (see README limitation #6) and possibly
-  other new interactions. Worth a quick per-chorale look (same bisection
-  technique used for the voice-range cluster) before starting minor mode,
-  since it's cheap and might reveal another small, high-value fix like
-  the soprano-range one.
+  succeed at width 32 don't anymore, all 4 individually confirmed to
+  still succeed at a wider beam — not a new structural failure.
+- ~~Bisect all 6 chorales still failing as `Other` at width 512~~ — done
+  2026-08-11. First fixed a real bug in the bisection tool itself
+  (truncating a melody for diagnosis made the truncation point look
+  artificially final, wrongly triggering `SecondaryDominantResolutionRule`'s
+  final-position rejection — fixed via `replay_to_failure` in
+  `examples/chorale_benchmark.rs`, which replays the *full* melody's
+  search up to the real failure point instead). With that fixed:
+  - **3/6** (Riemenschneider 102, 173, 327): same root cause — an
+    applied dominant's chromatic tone held/repeated across two notes
+    before resolving had nowhere to go on the second occurrence, since
+    `SecondaryDominantResolutionRule` required resolution at the *very
+    next* position unconditionally. Fixed: prolonging the same applied
+    dominant across a repeat no longer counts as unresolved. This raised
+    coverage from 91.7% to **94.4% (136/144)**.
+  - **2/6** (Riemenschneider 40, 202): NOT fixed — a real, larger gap.
+    The soprano is forced into a formal chordal-seventh role requiring
+    step-down resolution, but the real melody leaps a third — almost
+    certainly a non-chord (passing) tone, which mokuren has no model for
+    at all. See "Real correctness gaps" below; not attempted this pass.
+  - **1/6** (Riemenschneider 234): turned out to be beam-width-recoverable
+    (not structural) once the harness's own retry ladder was widened to
+    512.
+  - Full table and per-chorale detail: `tasks/baseline-v0.2.0-secondary-dominants.md`.
+  Regression-checked again at 94.4%: only 2 chorales (135, 230) differ
+  from v0.1.0, both confirmed beam-width-recoverable.
+- **Next, per the user's approved order (2026-08-11)**: ① secondary
+  dominants + bisection — done, above. ② soprano-rest support in
+  `Melody` (roadmap phase 4) — next, since 20.2% of the *full* corpus
+  is excluded before harmonization is even attempted, a bigger and more
+  local win for the verification base than minor mode. ③ minor +
+  harmonic minor (roadmap phase 3). ④ adaptive/search-budget research —
+  see the width-curve item below. ⑤ cadential-6/4 lookahead (roadmap
+  phase 6, still deprioritized — 0 baseline failures traced to it).
+- **Requested but not yet done**: a width-vs-coverage/runtime curve
+  (32/64/128/256/512) across the *full* 144-chorale corpus (not just the
+  failure subset the existing beam-width curve already covers), to
+  inform whether an adaptive-retry search strategy (`harmonize(32)` →
+  retry wider only on `NoValidHarmonization`) is worth the engineering
+  cost before building it. Also requested: refine `FailureCategory`
+  into something like `StructuralFailure` / `SearchBudgetFailure` /
+  `UnsupportedVocabulary` / `InputRepresentationFailure` — a clearer
+  taxonomy now that `SearchExhausted` vs genuine rule conflicts are
+  reliably distinguished (post bisection-tool fix). Neither is urgent;
+  do alongside or after soprano-rest support, not before it.
 
 ## Real correctness gaps (tracked in more detail in README "Current limitations")
 
+- **Non-chord tones (passing/neighbor tones) aren't modeled at all** —
+  every soprano note must be a full chord tone; there's no way for a
+  quick, unaccented note to sit *outside* the current harmony. Newly
+  surfaced by bisecting Riemenschneider 40 and 202 (2026-08-11): both
+  have a soprano note that's the formal chordal seventh of an applied
+  dominant seventh, which `ChordalSeventhResolutionRule` requires to
+  resolve down by step — but the real melody leaps a third instead,
+  consistent with the note being a decorative passing tone rather than
+  a real chordal seventh. Not yet scoped as a roadmap phase; a genuinely
+  different kind of model extension (soprano notes that don't constrain
+  the chord) from secondary dominants (more chords available).
 - Secondary dominants are narrower than full applied-chord theory: no
-  applied leading-tone chords (vii°/x), no chained tonicization, strict
-  (no inner-voice-exception) resolution. Roadmap phase 2 follow-up, not
-  currently scheduled — the 6 chorales still failing as `Other` in the
-  v0.2.0-in-progress baseline are candidates for needing this, but not
-  yet individually confirmed (see the item above).
+  applied leading-tone chords (vii°/x), no chained tonicization
+  (encountered directly: Riemenschneider 234 needed two different
+  applied dominants back-to-back with no clean intermediate resolution
+  — currently only recoverable by a wider beam finding an alternate,
+  non-chromatic path, not by the rule itself permitting the chain),
+  strict (no inner-voice-exception) resolution. Roadmap phase 2
+  follow-up, not currently scheduled.
 - `Melody` has no `Rest` variant despite `Rest` existing as a type in
   `melody.rs` — 20.2% of the full chorale corpus has a soprano rest and
   can't even be attempted. Roadmap phase 4 (new, surfaced by the baseline).

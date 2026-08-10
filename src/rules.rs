@@ -444,6 +444,17 @@ impl Rule for UnpreparedSixFourRule {
 /// `LeadingToneResolutionRule` — see README's "Current limitations"),
 /// and rejects an applied dominant outright at the final position, since
 /// it can never resolve there.
+///
+/// *Prolonging* the same applied dominant (same `applied_to` target,
+/// e.g. a chromatic tone tied or repeated across two notes before
+/// moving on) doesn't count as an unresolved dangling dominant — the
+/// resolution obligation only applies once the harmony actually changes
+/// away from it. Without this, a genuinely common pattern (Bach chorale
+/// baseline, Riemenschneider 102: D#5 held across two consecutive
+/// quarter notes before resolving up to E5) was structurally
+/// unharmonizable: the *second* note of the hold had nowhere to go,
+/// since nothing satisfies "resolve right now" while the soprano itself
+/// hasn't moved yet.
 pub struct SecondaryDominantResolutionRule;
 impl Rule for SecondaryDominantResolutionRule {
     fn id(&self) -> RuleId {
@@ -462,6 +473,9 @@ impl Rule for SecondaryDominantResolutionRule {
         let Some(target_pc) = prev_rn.resolution_target(ctx.key) else {
             return RuleResult::pass();
         };
+        if ctx.roman_numeral.applied_to == prev_rn.applied_to {
+            return RuleResult::pass();
+        }
         if !ctx.chord.root.is_enharmonic_to(&target_pc) {
             return RuleResult::violation(self.id(), self.severity());
         }
