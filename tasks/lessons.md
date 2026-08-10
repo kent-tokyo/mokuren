@@ -127,3 +127,24 @@ then deleted, never committed. Lesson: when the plan is "reference an
 external source, don't vendor it," check every artifact a tool built for
 that reference produces, not just the original source — a derived file
 committed to the repo is still vendoring.
+
+## A 20-chorale sample and a 144-chorale baseline agreed on the headline number but not on the shape of the problem
+
+The 20-chorale validation run found ~50% coverage and one diagnosed
+failure (chromatic soprano). The full 144-chorale major-mode baseline
+landed on almost the same coverage (50.7%) — but only because the
+dominant failure category (chromatic soprano, 88.7%) was large enough to
+show up even in 20 samples. The smaller categories didn't: the full run
+found 5 voice-range rule conflicts and 1 chordal-seventh-resolution
+conflict that a 20-chorale sample had zero chance of surfacing at that
+rate (5/144 ≈ 3.5%; expected count in a 20-chorale sample is <1). It also
+answered a question the small sample couldn't: whether the cadential-6/4
+rule (assumed, going in, to be a top-3 issue worth fixing before secondary
+dominants) actually causes any failures at scale — it caused zero in 144
+chorales, which reordered ROADMAP.md. Lesson: a small validation sample is
+enough to prove "this component has a real gap, worth building the full
+benchmark" (that's all it was ever used for), but is the wrong tool for
+*prioritizing what to fix next* — that needs the full run, because rare-
+but-real failure categories and "assumed but actually zero" categories
+both require enough samples to appear at their true rate. Don't stop at
+a validation sample and start reordering the roadmap from it.

@@ -42,15 +42,24 @@ Not yet implemented: reporting full distributions (percentiles, not just means) 
 
 ## First validation run (not the baseline)
 
-Ran `tools/music21_chorale_extractor.py --limit 20` against a local music21 install (v9.9.1) and fed the output straight to `examples/chorale_benchmark.rs`, purely to confirm the pipeline works end to end against real data before treating it as ready for the actual major-mode baseline. It's not that baseline — 20 chorales, not the full major-mode subset, and picked by iteration order, not deliberately sampled. Extracted output was not committed (per "reference, don't vendor" — see below); only what it revealed is recorded here.
+**Superseded by the full baseline below** — kept for history. A 20-chorale pipeline check (not a sampled subset, just iteration order) found 50% coverage and diagnosed one failure (Riemenschneider 2, a G natural not diatonic in A major) to a chromatic soprano tone. That prediction — "chromatic content is common enough that the real baseline may land well below 100%" — is what the full run below confirms.
 
-**Coverage was 50% (10/20)**, and diagnosing one failure precisely (bisecting the soprano line to the shortest failing prefix, then checking `Diagnostics`) found a specific, expected cause: Riemenschneider 2 ("Ich dank' dir, lieber Herre," A major) fails to harmonize starting at its 6th soprano note, a G natural — which is not a diatonic tone in A major (only G# is; A major's diatonic scale has no plain G). No hard-rule combination is at fault and no beam width fixes it (checked up to 512) — mokuren's engine is diatonic-only by design (AGENTS.md section 5), so a chromatic tone (most likely a secondary dominant — G natural is exactly what an applied A7 resolving to IV=D major would need — or a chromatic passing/neighbor tone) has no diatonic chord that contains it, in any key.
+## v0.1.0 baseline (full major-mode subset, 2026-08-10)
 
-This is the roadmap's "secondary dominants" phase (4) validated as mattering before being built, from real data rather than from reading AGENTS.md section 20 and guessing it would matter eventually. It's also a caution about magnitude: half of a 20-chorale sample failing entirely (not "harmonized poorly" — zero output) suggests chromatic content is common enough in real chorale writing that the major-mode baseline, once run properly, may show a coverage number well below 100% even before minor-mode chorales are considered. That's exactly the kind of number this benchmark exists to produce — not a reason to route around it by only testing chorales known to be fully diatonic.
+Full results, provenance, failure taxonomy, and the per-chorale table: [`tasks/baseline-v0.1.0.md`](tasks/baseline-v0.1.0.md). Summary:
+
+- **144/371 Riemenschneider chorales were even attemptable** (38.8%) — 227 excluded before harmonization was ever tried: 143 minor mode (38.5% of the full corpus), 75 because the soprano has a rest mokuren's `Melody` can't represent (20.2% — a comparably large gap to minor mode, and a data-model limitation rather than a theory one), 9 other (missing part / unrepresentable duration / an ATB gap at a soprano onset).
+- **Of the 144 attempted, 73 harmonized successfully (50.7% coverage)**, 0 hard-rule violations (the invariant holds).
+- **Failures are not one bucket**: 63 chromatic-soprano (88.7% of failures — a pitch class outside the key's diatonic scale, most likely secondary dominants and/or chromatic non-chord tones in real chorale writing), 5 voice-range rule conflicts, 2 search-exhausted (a wider beam finds a path), 1 chordal-seventh-resolution conflict.
+- **Beam width is confirmed not the bottleneck**: widening from 32 to 256 only recovers 2 chorales (50.7% → 52.1%).
+- **Zero failures trace to the cadential-6/4 rule specifically** — the earlier phase order (6/4 lookahead *before* secondary dominants) isn't supported by this data. See ROADMAP.md's reordering.
+- Voice-leading cost: median 7.20/position (p90 7.99, p95 8.06). Runtime: median 1.4s/chorale at width 32 (p90 2.1s, p95 2.3s). Explanation completeness: `why()` 97.8%, `why_not()` 100%. Cadence: 61.6% authentic, 20.5% plagal, 17.8% none; 82.2% end on a tonic-function chord.
+
+Reproduce: `python3 tools/music21_chorale_extractor.py -o <dir>` then `cargo run --release --example chorale_benchmark -- <dir> --report tasks/baseline-v0.1.0.md`. Extracted `.chorale` files are never committed (deleted after each run here, per "reference, don't vendor" below) — only the report (titles, catalog numbers, mokuren's own computed statistics — no encoded musical content) is.
 
 ## Phasing
 
-Start with the **major-mode subset** of whatever corpus is adopted (see below) — this is exactly what v0.1 can measure *today*, with zero new theory work, and is roadmap phase 1. Minor-mode chorales get folded in once roadmap phase 2 (minor mode) lands, which also directly demonstrates that phase's benchmark impact rather than just "the code compiles and unit tests pass."
+Major-mode subset first (done above, roadmap phase 1) was exactly right: it needed zero new theory work and immediately produced the finding that reorders everything after it. Minor-mode chorales fold in once roadmap phase 2 lands — expect the chromatic-soprano failure *rate* to hold or worsen there (minor keys have their own chromatic tendency tones), which is part of why secondary-dominant/chromatic support was moved ahead of the 6/4 lookahead in the phase order.
 
 ## Corpus candidates and what's verified about each
 
