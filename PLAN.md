@@ -78,6 +78,16 @@ opening a second plan doc):
   (`diatonic_pitch_class`, `scale`, `RomanNumeral::to_chord`, and
   everything downstream in the search hot path) stays infallible. No
   `Result` threading through candidate generation.
+- `examples/chorale_benchmark.rs` + `BENCHMARK.md`: the roadmap was
+  reordered (see ROADMAP.md's "Verification-first phase") to measure
+  reasoning quality against unseen melodies before adding more theory
+  scope, since README limitation #3 (hand-tuned weights, one melody) is a
+  bigger risk than missing features. The harness computes all 7 protocol
+  metrics against a simple `.chorale` fixture format and is verified
+  against synthetic smoke-test fixtures; it isn't yet pointed at a real
+  corpus because none of the four candidate sources checked gave a clean
+  "commit this to the repo" answer on licensing (`BENCHMARK.md` has the
+  detail) — specific source selection is tracked in `tasks/todo.md`.
 
 ## Phases (AGENTS.md section 29, adapted to depth-first order)
 

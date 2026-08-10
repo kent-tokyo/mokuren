@@ -1,6 +1,8 @@
 # External chorale benchmark — protocol manifest
 
-This is the "fix the protocol before running it" document requested alongside the ROADMAP.md landscape update. It fixes *what* the benchmark measures and *what corpus it's allowed to touch* before any of it is implemented. No chorale data is vendored into this repository by this document — see [Open decision](#open-decision-corpus-source-not-yet-resolved) below.
+This is the "fix the protocol before running it" document requested alongside the ROADMAP.md landscape update. It fixes *what* the benchmark measures and *what corpus it's allowed to touch*. No chorale data is vendored into this repository — see [Corpus source](#corpus-source-approach-decided-specific-source-still-open) below.
+
+**Status**: the harness itself is implemented — `examples/chorale_benchmark.rs`, verified against synthetic smoke-test fixtures in `examples/chorale_benchmark_fixtures/` (written for this repo, not real chorales). Run it: `cargo run --release --example chorale_benchmark -- examples/chorale_benchmark_fixtures`. What's still missing is a real corpus to point it at — the specific source is tracked as open in `tasks/todo.md`.
 
 ## Purpose
 
@@ -27,10 +29,14 @@ A single "accuracy" number would hide exactly the information this benchmark exi
 
 ## Methodology
 
-1. For each chorale in the working subset: extract the soprano line (pitch + duration), key, and meter; discard alto/tenor/bass (they're the ground truth for the secondary note-match metric only, not an input).
+Implemented in `examples/chorale_benchmark.rs`:
+
+1. For each chorale in the working subset: extract the soprano line (pitch + duration) and key; discard alto/tenor/bass (they're the ground truth for the secondary note-match metric only, not an input) unless supplying them for that metric.
 2. Run `Composer::new().key(...).style(Style::CommonPractice).harmonize(soprano)`.
-3. Record all seven metrics above from the `HarmonizationResult` (`Decision`s, `Diagnostics`, timing).
-4. Aggregate per-chorale results; report distributions, not just means (a metric that's perfect on 90% of chorales and catastrophic on 10% is a different finding than uniformly-mediocre).
+3. Record all seven metrics above from the `HarmonizationResult` (`Decision`s, timing).
+4. Aggregate per-chorale results and print a report (mean voice-leading cost/runtime/explanation coverage, coverage and search-failure rates, `why_not()` success rate, a full cadence-type distribution rather than one number, and a per-chorale breakdown for spotting outliers).
+
+Not yet implemented: reporting full distributions (percentiles, not just means) for the numeric metrics, and meter — the fixture format and harness currently assume the melody's own note durations are enough context, matching v0.1's own scope (mokuren doesn't yet reason about meter/phrase position beyond "is this the final position").
 
 ## Phasing
 
@@ -49,13 +55,10 @@ Researched 2026-08-10 via each source's own documentation — not assumed. All f
 
 **The 370/371 discrepancy some sources quote isn't two different datasets** — it's the same Breitkopf & Härtel/Dörffel edition (371 chorales), with 370 being the four-part-only subset. Whichever source is adopted, cite the edition and specify which count is meant.
 
-## Open decision: corpus source (not yet resolved)
+## Corpus source: approach decided, specific source still open
 
-None of the four candidates above give a clean, unambiguous "vendor this into mokuren's public repository" answer — every one either restricts commercial use, lacks an explicit license, or requires per-work verification. Given that, this document does **not** pick one, and no chorale data has been downloaded or committed as part of this pass.
+None of the four candidates above give a clean, unambiguous "vendor this into mokuren's public repository" answer — every one either restricts commercial use, lacks an explicit license, or requires per-work verification. No chorale data has been downloaded or committed.
 
-Two structurally different ways forward, either of which sidesteps committing possibly-restricted data into this repository:
+**Decided (2026-08-10): Reference, don't vendor.** The benchmark harness reads chorale data at run time from a source the person *running* the benchmark supplies locally (e.g. their own music21 install, or a locally cloned kernScores mirror) — mokuren's repository never ships any of it, so mokuren's own license stays clean regardless of the source's terms. The alternative (requesting explicit permission from CCARH to vendor a subset) was not chosen.
 
-1. **Reference, don't vendor.** The benchmark harness fetches or reads chorale data at run time from a source the person *running* the benchmark already has locally (e.g. their own music21 install, or a locally cloned kernScores mirror) rather than mokuren's repository shipping any of it. mokuren's own license stays clean regardless of the data's terms; the benchmark just isn't runnable without that external setup.
-2. **Request explicit permission.** Contact CCARH about a small subset (the major-mode chorales needed for roadmap phase 1) for inclusion in an open-source research tool, given their stated "available to non-profit institutions" language already contemplates exactly this kind of use.
-
-**This choice needs your call before any implementation work starts on roadmap phase 1** — it's a licensing decision with real downstream consequences (what a commercial user of mokuren can and can't do), not an engineering one.
+**Still open, and tracked in `tasks/todo.md` rather than blocking further work**: which specific source the harness points at by default, and the exact intermediate file format it reads (mokuren has no Humdrum `**kern` or MusicXML parser yet — that's roadmap phase 5, itself paused until this benchmark runs, so the harness needs a simpler interchange format in the meantime rather than waiting on a parser). This is an engineering/format decision, not a licensing one, so it doesn't need the same sign-off the vendor-vs-reference choice did.
