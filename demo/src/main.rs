@@ -1,10 +1,12 @@
 mod i18n;
+mod notation;
 
 use i18n::use_lang;
 use leptos::prelude::*;
 use mokuren::key::Mode;
 use mokuren::melody::Position;
 use mokuren::prelude::*;
+use notation::Notation;
 
 const DEFAULT_MELODY: &str = "C4 C4 G4 G4 A4 A4 G4";
 
@@ -332,6 +334,7 @@ fn App() -> impl IntoView {
                                 .collect();
                             let diag = result.diagnostics().clone();
                             let result_for_panel = result.clone();
+                            let result_for_notation = result.clone();
                             view! {
                                 <section class="progression" title=move || i18n::progression_tip(lang.get())>
                                     <h2>{move || i18n::harmonization_header(lang.get())}</h2>
@@ -355,6 +358,7 @@ fn App() -> impl IntoView {
                                         " · " {move || i18n::rejected_label(lang.get())} " " {diag.candidates_rejected}
                                     </p>
                                 </section>
+                                <Notation result=result_for_notation selected_position=selected_position />
                                 {move || {
                                     selected_position
                                         .get()

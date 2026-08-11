@@ -200,3 +200,19 @@ pre {
     margin: 0.15rem 0 0;
     color: #888;
 }
+
+.notation-wrap {
+    overflow-x: auto;
+}
+
+#notation {
+    cursor: pointer;
+    background: #fff;
+    border-radius: 4px;
+    padding: 0.5rem;
+    display: inline-block;
+}
+
+#notation svg {
+    display: block;
+}

@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>mokuren — Explainable Harmony</title>
     <link data-trunk rel="css" href="style.css" />
+    <!-- Vendored VexFlow 5.0.0 (MIT) engraving library, loaded as a plain
+         global script (window.VexFlow) — see notation.js for the glue
+         that renders mokuren's harmonization onto it. Neither file is a
+         Rust/wasm-bindgen module, so both need an explicit copy-file
+         plus an explicit <script> tag; Trunk doesn't rewrite these. -->
+    <link data-trunk rel="copy-file" href="vexflow.js" />
+    <script src="vexflow.js"></script>
+    <link data-trunk rel="copy-file" href="notation.js" />
+    <script src="notation.js"></script>
 </head>
 <body></body>
 </html>
