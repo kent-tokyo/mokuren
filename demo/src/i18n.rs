@@ -15,14 +15,14 @@ pub enum Lang {
 impl Lang {
     pub fn label(self) -> &'static str {
         match self {
-            Lang::En => "EN",
-            Lang::Ja => "JA",
+            Lang::En => "English",
+            Lang::Ja => "日本語",
         }
     }
 
     pub fn from_label(label: &str) -> Lang {
         match label {
-            "JA" => Lang::Ja,
+            "日本語" => Lang::Ja,
             _ => Lang::En,
         }
     }
