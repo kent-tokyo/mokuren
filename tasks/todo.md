@@ -142,34 +142,75 @@ scope and phasing — this is the flat, scannable version.
     transition disambiguates — candidate-label equivalence / deferred
     interpretation), tracked as its own v0.3 research item below, not
     rushed before v0.2.0.
-- **v0.3 research candidate**: candidate-label equivalence / deferred
-  harmonic interpretation, to structurally fix the 4 equivalent-label
-  failures above without touching score weights. Sketch: when a
-  candidate's sounding chord (root + quality + voicing) is identical
+- **v0.3 plan (user directive, 2026-08-11)**: agreed direction — for
+  combined coverage 80.2% → ~92%, the search *architecture* is now the
+  bigger lever than harmonic vocabulary. Two phases, sequenced (not
+  simultaneous, specifically so each one's effect is isolable):
+
+  **Phase A — candidate-label equivalence / deferred harmonic
+  interpretation.** Structurally fixes the 4 equivalent-label failures
+  (`tasks/lessons.md`) without touching score weights, and may reduce
+  duplicate beam states broadly enough to help some of the 45
+  search-exhausted failures too — that's the real reason it's worth
+  doing before adaptive beam, not just to close 4 chorales. Sketch: when
+  a candidate's sounding chord (root + quality + voicing) is identical
   across two or more `RomanNumeral` interpretations (e.g. a diatonic one
-  and an applied-dominant one whose root coincides), keep the
-  interpretations bundled as an equivalence class through the beam
-  instead of committing to one label immediately — let the *next*
-  transition (does the following chord actually resolve the applied
-  reading, or not) pick which interpretation was "real." Start with a
-  small experiment, not a design doc — no weight changes.
+  and an applied-dominant one whose root coincides — `Bb-D-F` as both
+  `III` and `V/vi`), keep the interpretations bundled as an equivalence
+  class through the beam instead of committing to one label immediately.
+  The *next* transition (does the following chord actually resolve the
+  applied reading, or not) decides which interpretation survives.
+  Side benefit: `why()`/`why_not()` could report not just *why* a chord
+  was chosen but *when* its interpretation became definite — e.g. "at
+  position 12 this voicing had two valid interpretations (III, V/vi);
+  V/vi remained provisional until position 13 showed it was
+  inconsistent with the continuation, so III was retained." A
+  meaningfully different explainability claim from "why this chord" —
+  worth pursuing alongside Phase A itself, not as an afterthought.
+
+  **Phase B — adaptive search budget**, after Phase A and after
+  re-measuring. Not "just raise 32 to 128" — trigger a wider retry from
+  a diagnostic signal (candidate-diversity collapse, too many
+  equivalent-score paths, other horizon-risk indicators from the beam
+  itself), not a blanket width change.
+
+  **Success bar for v0.3, stated numerically in advance**: combined
+  coverage at beam-32-equivalent cost 80.2% → 88%+; with adaptive mode,
+  90.8%+ (ideally ~92%); major must not regress below 94.5%; minor must
+  not regress; 0 hard-rule violations maintained; full 348-chorale
+  per-chorale before/after diff (not aggregate-only); runtime median
+  *and* p95 compared, not just coverage — avoid "coverage went up but
+  cost went up 10x." Consider an efficiency metric (coverage recovered
+  per additional candidate evaluated) so a width increase that's mostly
+  waste doesn't look like a win. No score-weight tuning in either phase.
+
+  **Prerequisite experiment, before any Phase A implementation** (in
+  progress 2026-08-11): a fixed beam-width table — coverage,
+  search-exhausted count, median runtime, p95 runtime — across the full
+  348-chorale corpus at widths 16/32/64/128/256/512, using the new
+  `--width` flag (`examples/chorale_benchmark.rs`). This is the
+  pre-Phase-A baseline Phase A's own effect gets measured against: if
+  Phase A alone (still beam 32) moves coverage from 80.2% toward
+  87–89%, that proves state representation was the real issue, not
+  raw search budget — if it barely moves, the 45 search-exhausted
+  failures are a genuine budget problem and Phase B is the right next
+  step regardless of Phase A's outcome on the equivalent-label cases.
 - **Next**: re-taxonomize what's still failing in minor (45
   search-exhausted, 7 chordal-seventh-resolution, 11 voice-overlap; the
   6 secondary-dominant-resolution failures above are now understood and
-  documented, not "new") before picking the next phase. Original order
-  after minor applied dominants: adaptive/search-budget research, then
-  cadential-6/4 lookahead.
-- **Requested but not yet done**: a width-vs-coverage/runtime curve
-  (32/64/128/256/512) across the *full* 182-chorale corpus (not just the
-  failure subset the existing beam-width curve already covers), to
-  inform whether an adaptive-retry search strategy (`harmonize(32)` →
-  retry wider only on `NoValidHarmonization`) is worth the engineering
-  cost before building it. Also requested: refine `FailureCategory`
-  into something like `StructuralFailure` / `SearchBudgetFailure` /
-  `UnsupportedVocabulary` / `InputRepresentationFailure` — a clearer
-  taxonomy now that `SearchExhausted` vs genuine rule conflicts are
-  reliably distinguished (post bisection-tool fix). Neither is urgent;
-  do alongside or after soprano-rest support, not before it.
+  documented, not "new") before picking the next phase.
+- ~~Requested: a width-vs-coverage/runtime curve across the full
+  corpus~~ — superseded by the v0.3 plan's "prerequisite experiment"
+  above (same idea, now scoped to 16–512 across all 348 chorales rather
+  than 32–512 across 182, and tied to a concrete before/after
+  comparison instead of open-ended). Still separately requested and not
+  yet done: refine `FailureCategory` into something like
+  `StructuralFailure` / `SearchBudgetFailure` / `UnsupportedVocabulary`
+  / `InputRepresentationFailure` — a clearer taxonomy now that
+  `SearchExhausted` vs genuine rule conflicts are reliably distinguished
+  (post bisection-tool fix). Not urgent; natural to fold into Phase A's
+  own implementation work if the equivalence-class candidate needs a
+  richer failure category anyway.
 
 ## Real correctness gaps (tracked in more detail in README "Current limitations")
 
