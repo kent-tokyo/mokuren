@@ -680,18 +680,35 @@ fn diagnose_structural_failure(fixture: &ChoraleFixture, width: usize) -> Failur
     }
 }
 
-fn classify_failure(fixture: &ChoraleFixture) -> FailureCategory {
+/// Retry widths strictly wider than `primary_width` — when `primary_width`
+/// itself is one of `RETRY_WIDTHS` (or wider, e.g. running a
+/// `--width`-swept measurement above 32), retrying at a *narrower*
+/// width than what just failed is meaningless: beam search is
+/// monotonic in width (a wider beam's top-N always includes a narrower
+/// beam's top-N under the same deterministic tie-break), so a smaller
+/// width can never succeed where a larger one just failed.
+fn retry_widths_above(primary_width: usize) -> Vec<usize> {
+    RETRY_WIDTHS
+        .iter()
+        .copied()
+        .filter(|&w| w > primary_width)
+        .collect()
+}
+
+fn classify_failure(fixture: &ChoraleFixture, primary_width: usize) -> FailureCategory {
     if has_unsupported_chromatic_tone(&fixture.soprano, &fixture.key) {
         return FailureCategory::ChromaticSoprano;
     }
-    for &width in &RETRY_WIDTHS {
+    let retry_widths = retry_widths_above(primary_width);
+    for &width in &retry_widths {
         if harmonizes_at_width(fixture, width) {
             return FailureCategory::SearchExhausted {
                 first_working_width: width,
             };
         }
     }
-    diagnose_structural_failure(fixture, *RETRY_WIDTHS.last().unwrap())
+    let widest = retry_widths.last().copied().unwrap_or(primary_width);
+    diagnose_structural_failure(fixture, widest)
 }
 
 // ---- Measurement ---------------------------------------------------------
@@ -745,12 +762,12 @@ fn note_match(result: &HarmonizationResult, fixture: &ChoraleFixture) -> (usize,
     (matched, total)
 }
 
-fn measure(fixture: &ChoraleFixture) -> ChoraleMetrics {
+fn measure(fixture: &ChoraleFixture, width: usize) -> ChoraleMetrics {
     let start = Instant::now();
     let outcome = Composer::new()
         .key(fixture.key)
         .style(Style::CommonPractice)
-        .search(BeamSearch::new().width(STANDARD_WIDTH))
+        .search(BeamSearch::new().width(width))
         .harmonize(fixture.soprano.clone());
     let runtime = start.elapsed();
 
@@ -770,7 +787,7 @@ fn measure(fixture: &ChoraleFixture) -> ChoraleMetrics {
             why_not_successes: 0,
             note_matched: 0,
             note_total: 0,
-            failure_category: Some(classify_failure(fixture)),
+            failure_category: Some(classify_failure(fixture, width)),
         };
     };
 
@@ -1043,7 +1060,7 @@ fn aggregate_by_chorale(metrics: &[ChoraleMetrics]) -> Vec<ChoraleAggregate<'_>>
 
 // ---- Report ------------------------------------------------------------
 
-fn build_report(metrics: &[ChoraleMetrics], provenance: &Provenance) -> String {
+fn build_report(metrics: &[ChoraleMetrics], provenance: &Provenance, width: usize) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
 
@@ -1095,9 +1112,10 @@ fn build_report(metrics: &[ChoraleMetrics], provenance: &Provenance) -> String {
         "- chorales measured here: {total} ({} phrase(s) total, after splitting at rests)",
         metrics.len()
     );
+    let retry_widths = retry_widths_above(width);
     let _ = writeln!(
         out,
-        "- standard beam width: {STANDARD_WIDTH} (retry widths for failure classification: {RETRY_WIDTHS:?})\n"
+        "- standard beam width: {width} (retry widths for failure classification: {retry_widths:?})\n"
     );
 
     let _ = writeln!(out, "## Coverage\n");
@@ -1146,23 +1164,23 @@ fn build_report(metrics: &[ChoraleMetrics], provenance: &Provenance) -> String {
 
         let _ = writeln!(
             out,
-            "\n### Beam-width coverage curve (failures only — successes at width {STANDARD_WIDTH} aren't retried)\n"
+            "\n### Beam-width coverage curve (failures only — successes at width {width} aren't retried)\n"
         );
         let mut cumulative = covered;
         let _ = writeln!(
             out,
-            "- width {STANDARD_WIDTH:>4}: {cumulative}/{total} ({:.1}%)",
+            "- width {width:>4}: {cumulative}/{total} ({:.1}%)",
             100.0 * cumulative as f64 / total.max(1) as f64
         );
-        for &width in &RETRY_WIDTHS {
+        for &retry_width in &retry_widths {
             let newly_working = failed_metrics
                 .iter()
-                .filter(|a| matches!(&a.failure, Some((FailureCategory::SearchExhausted { first_working_width }, _)) if *first_working_width == width))
+                .filter(|a| matches!(&a.failure, Some((FailureCategory::SearchExhausted { first_working_width }, _)) if *first_working_width == retry_width))
                 .count();
             cumulative += newly_working;
             let _ = writeln!(
                 out,
-                "- width {width:>4}: {cumulative}/{total} ({:.1}%)",
+                "- width {retry_width:>4}: {cumulative}/{total} ({:.1}%)",
                 100.0 * cumulative as f64 / total.max(1) as f64
             );
         }
@@ -1375,12 +1393,22 @@ fn main() {
     let mut report_path: Option<String> = None;
     let mut bisect: Option<String> = None;
     let mut minor_gap_report_flag = false;
+    let mut width = STANDARD_WIDTH;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--report" => report_path = args.next(),
             "--bisect" => bisect = args.next(),
             "--minor-gap-report" => minor_gap_report_flag = true,
+            "--width" => {
+                width = match args.next().and_then(|s| s.parse().ok()) {
+                    Some(w) => w,
+                    None => {
+                        eprintln!("--width requires a positive integer argument");
+                        std::process::exit(1);
+                    }
+                };
+            }
             other if dir.is_none() => dir = Some(other.to_string()),
             other => {
                 eprintln!("unexpected argument: {other:?}");
@@ -1452,18 +1480,21 @@ fn main() {
         return;
     }
 
-    eprintln!("measuring {} fixture(s)...", fixtures.len());
+    eprintln!(
+        "measuring {} fixture(s) at width {width}...",
+        fixtures.len()
+    );
     let metrics: Vec<ChoraleMetrics> = fixtures
         .iter()
         .enumerate()
         .map(|(i, f)| {
             eprintln!("  [{}/{}] {}", i + 1, fixtures.len(), f.name);
-            measure(f)
+            measure(f, width)
         })
         .collect();
 
     let provenance = gather_provenance(&dir);
-    let report = build_report(&metrics, &provenance);
+    let report = build_report(&metrics, &provenance, width);
 
     if let Some(report_path) = report_path {
         if let Err(e) = std::fs::write(&report_path, &report) {
