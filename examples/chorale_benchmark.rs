@@ -354,6 +354,154 @@ fn has_unsupported_chromatic_tone(melody: &Melody, key: &Key) -> bool {
         .any(|n| is_harmonically_unreachable(n.pitch.pitch_class, key))
 }
 
+/// Candidate applied-dominant targets to check a minor-key chromatic
+/// tone against — the same excluded set (tonic, leading tone) major's
+/// `applied_dominant_vocabulary` uses, not a claim these are the only
+/// targets that matter in minor (that's exactly what `minor_gap_report`
+/// exists to find out from real data, not to assume).
+const CANDIDATE_APPLIED_DOMINANT_TARGETS: [mokuren::key::ScaleDegree; 5] = [
+    mokuren::key::ScaleDegree::SUPERTONIC,
+    mokuren::key::ScaleDegree::MEDIANT,
+    mokuren::key::ScaleDegree::SUBDOMINANT,
+    mokuren::key::ScaleDegree::DOMINANT,
+    mokuren::key::ScaleDegree::SUBMEDIANT,
+];
+
+/// What would make an unreachable minor-key soprano pitch class
+/// reachable, if anything obvious would — used to decide which
+/// chromatic vocabulary is actually worth implementing for minor mode,
+/// from real corpus evidence instead of copying major's applied-dominant
+/// set wholesale (2026-08-11 user directive: bisect first, implement
+/// only what the data supports).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+enum GapClass {
+    /// Matches the melodic-minor raised 6th (a semitone above natural
+    /// minor's own submediant) — mokuren has no melodic-minor concept.
+    RaisedSixth,
+    /// Would be reachable via V/`target` or V7/`target`, if that
+    /// applied-dominant target were implemented for minor keys.
+    AppliedDominant(mokuren::key::ScaleDegree),
+    /// Doesn't match any candidate above — a genuine non-chord tone,
+    /// or a target outside the candidate set checked here.
+    Other,
+}
+
+/// Every classification that would explain `pitch_class` — deliberately
+/// not just the first match, since a pitch class can coincide with more
+/// than one applied dominant's chord tones; the caller decides which
+/// combination of additions covers the most real failures.
+fn classify_gap(pitch_class: mokuren::pitch::PitchClass, key: &Key) -> Vec<GapClass> {
+    let mut classes = Vec::new();
+    let submediant = key.diatonic_pitch_class(mokuren::key::ScaleDegree::SUBMEDIANT);
+    if (pitch_class.semitone() as i32 - submediant.semitone() as i32).rem_euclid(12) == 1 {
+        classes.push(GapClass::RaisedSixth);
+    }
+    for &target in &CANDIDATE_APPLIED_DOMINANT_TARGETS {
+        let matches = [
+            RomanNumeral::applied_dominant(target, mokuren::chord::ChordQuality::MajorTriad),
+            RomanNumeral::applied_dominant(target, mokuren::chord::ChordQuality::DominantSeventh),
+        ]
+        .iter()
+        .any(|rn| {
+            rn.to_chord(key)
+                .is_some_and(|chord| chord.contains_pitch_class(pitch_class))
+        });
+        if matches {
+            classes.push(GapClass::AppliedDominant(target));
+        }
+    }
+    if classes.is_empty() {
+        classes.push(GapClass::Other);
+    }
+    classes
+}
+
+fn gap_class_label(class: &GapClass) -> String {
+    const NAMES: [&str; 7] = ["I", "ii", "iii", "IV", "V", "vi", "vii"];
+    match class {
+        GapClass::RaisedSixth => "raised 6th (melodic minor)".to_string(),
+        GapClass::AppliedDominant(target) => {
+            format!("V(7)/{}", NAMES[(target.0 as usize - 1) % 7])
+        }
+        GapClass::Other => "other (non-chord tone / unclassified)".to_string(),
+    }
+}
+
+/// For every minor-key fixture whose soprano has an unreachable
+/// chromatic tone, classifies each occurrence and tallies at the
+/// *chorale* level (a chorale with multiple different gap classes counts
+/// once per class, not once per note) — the real-corpus evidence
+/// `tasks/todo.md`'s minor-applied-dominant phase asked for before
+/// choosing which targets to implement.
+fn minor_gap_report(fixtures: &[ChoraleFixture]) {
+    let mut chorale_classes: BTreeMap<String, std::collections::BTreeSet<GapClass>> =
+        BTreeMap::new();
+    let mut total_minor_chorales: std::collections::BTreeSet<String> = Default::default();
+    for fixture in fixtures {
+        if fixture.key.mode != Mode::Minor {
+            continue;
+        }
+        total_minor_chorales.insert(fixture.base_name.clone());
+        for note in &fixture.soprano.notes {
+            if is_harmonically_unreachable(note.pitch.pitch_class, &fixture.key) {
+                let classes = classify_gap(note.pitch.pitch_class, &fixture.key);
+                chorale_classes
+                    .entry(fixture.base_name.clone())
+                    .or_default()
+                    .extend(classes);
+            }
+        }
+    }
+
+    let mut tally: BTreeMap<GapClass, usize> = BTreeMap::new();
+    for classes in chorale_classes.values() {
+        for class in classes {
+            *tally.entry(class.clone()).or_insert(0) += 1;
+        }
+    }
+
+    println!(
+        "minor-mode chorales with an unreachable chromatic soprano tone: {}/{}",
+        chorale_classes.len(),
+        total_minor_chorales.len()
+    );
+    println!("(a chorale can appear under multiple classes if it has more than one kind of gap)\n");
+    let mut by_count: Vec<(&GapClass, &usize)> = tally.iter().collect();
+    by_count.sort_by_key(|(_, count)| std::cmp::Reverse(**count));
+    for (class, count) in by_count {
+        println!("{:>4}  {}", count, gap_class_label(class));
+    }
+
+    let needs_raised_sixth = chorale_classes
+        .values()
+        .filter(|classes| classes.contains(&GapClass::RaisedSixth))
+        .count();
+    let needs_other = chorale_classes
+        .values()
+        .filter(|classes| classes.contains(&GapClass::Other))
+        .count();
+    let applied_dominants_alone_would_fully_resolve = chorale_classes
+        .values()
+        .filter(|classes| {
+            classes
+                .iter()
+                .all(|c| matches!(c, GapClass::AppliedDominant(_)))
+        })
+        .count();
+    println!(
+        "\n{applied_dominants_alone_would_fully_resolve}/{} chorales would be *fully* resolved by applied dominants alone (no other gap class present)",
+        chorale_classes.len()
+    );
+    println!(
+        "{needs_raised_sixth}/{} chorales have a note needing the raised 6th regardless of applied-dominant coverage",
+        chorale_classes.len()
+    );
+    println!(
+        "{needs_other}/{} chorales have a note matching neither candidate (genuine non-chord tone or an untried target)",
+        chorale_classes.len()
+    );
+}
+
 fn harmonizes_at_width(fixture: &ChoraleFixture, width: usize) -> bool {
     Composer::new()
         .key(fixture.key)
@@ -1223,11 +1371,13 @@ fn main() {
     let mut dir = None;
     let mut report_path: Option<String> = None;
     let mut bisect: Option<String> = None;
+    let mut minor_gap_report_flag = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--report" => report_path = args.next(),
             "--bisect" => bisect = args.next(),
+            "--minor-gap-report" => minor_gap_report_flag = true,
             other if dir.is_none() => dir = Some(other.to_string()),
             other => {
                 eprintln!("unexpected argument: {other:?}");
@@ -1291,6 +1441,11 @@ fn main() {
         for fixture in matches {
             bisect_report(fixture);
         }
+        return;
+    }
+
+    if minor_gap_report_flag {
+        minor_gap_report(&fixtures);
         return;
     }
 

@@ -94,15 +94,35 @@ scope and phasing — this is the flat, scannable version.
   dominants yet and no melodic minor. Deliberately deferred: `vii°7`,
   applied dominants in minor keys, melodic minor (see "Real correctness
   gaps" below). Full detail: `tasks/baseline-v0.4.0-minor-mode.md`.
-- **Next, per the user's approved order (2026-08-11)**: ① secondary
-  dominants + bisection — done. ② soprano-rest support — done. ③ minor +
-  harmonic minor — done, above. ④ adaptive/search-budget research — see
-  the width-curve item below, next. ⑤ cadential-6/4 lookahead (roadmap
-  phase 6, still deprioritized — 0 baseline failures traced to it).
-  Also newly candidate for the next slot, not yet prioritized against
-  ④/⑤: applied dominants for minor keys — the single largest lever on
-  minor's 42.8% coverage per the v0.4.0 baseline's failure taxonomy
-  (77% of minor's failures are exactly this gap).
+- **Re-prioritized 2026-08-11 (user directive)**: minor applied
+  dominants moved ahead of adaptive/search-budget research. Rationale
+  (numbers, not vibes): major 94.5% (172/182) vs minor 42.8% (71/166),
+  0 hard-rule violations maintained, and minor's dominant failure mode
+  is *missing candidates* (no chord for the note at all), not *search
+  missing a candidate that exists* — adaptive beam only helps the
+  latter, so vocabulary has the bigger lever right now. New order: ①
+  minor applied dominants (data-driven, see below) → ② re-measure full
+  348-chorale baseline, diff major (must stay 172/182, 0 regressions)
+  and minor (classify improved/regressed/unchanged per chorale) → ③
+  taxonomize all remaining minor failures → ④ melodic minor (raised
+  6th) → ⑤ re-measure → ⑥ adaptive/search-budget research → ⑦
+  cadential-6/4 lookahead.
+  - **Explicit instruction on ①**: do not just copy major's
+    `applied_dominant_vocabulary()` onto minor — the
+    tonicization-target/altered-scale-degree relationship is more
+    involved in minor. Bisect real minor failures *first* to find which
+    specific targets (V/III, V/iv, V/V, V/VI, V7/..., vii°/... —
+    candidates, not a final list) actually recur in the corpus, and
+    implement only what the data supports.
+  - **Success bar, stated numerically, not "implemented" as success**:
+    zero regressions among major's 172/182 (per-chorale diff, not
+    assumed), 0 hard-rule violations maintained, minor before/after
+    diffed per-chorale (improved/regressed/unchanged classified
+    explicitly), score weights not touched purely to inflate coverage.
+    Target: minor 42.8% → 65–75% is a real win; ~80% would match the
+    scale of what secondary dominants did for major. Whatever's still
+    failing after that cleanly separates the next root cause (melodic
+    minor vs non-chord tones vs cadential 6/4 vs search budget).
 - **Requested but not yet done**: a width-vs-coverage/runtime curve
   (32/64/128/256/512) across the *full* 182-chorale corpus (not just the
   failure subset the existing beam-width curve already covers), to

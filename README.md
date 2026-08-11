@@ -12,6 +12,8 @@ mokuren generates and searches Common Practice harmonizations and can tell you *
 
 > v0.1 status: one vertical slice works end to end — SATB harmonization of a fixed soprano melody in a major key, with `explain()`, `why()`, and `why_not()` backed by real evaluated candidates. See [Current limitations](#current-limitations) before relying on this for anything beyond that slice.
 
+**[Try mokuren in your browser →](https://kent-tokyo.github.io/mokuren/playground/)** — a live demo (Rust compiled to WASM, no server) that lets you harmonize a melody and click through `why()`/`why_not()` for every candidate mokuren considered.
+
 ## What mokuren is
 
 - A **candidate-search harmonizer**: generate diatonic chord + voicing candidates for each note of a melody, score them against Common Practice rules, and search for the best sequence with beam search.
