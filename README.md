@@ -1,5 +1,9 @@
 # mokuren
 
+[![CI](https://github.com/kent-tokyo/mokuren/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/mokuren/actions/workflows/ci.yml)
+[![docs.rs](https://img.shields.io/docsrs/mokuren)](https://docs.rs/mokuren)
+[![License](https://img.shields.io/crates/l/mokuren)](#license)
+
 English | [日本語](README_ja.md)
 
 **mokuren — a fast, explainable symbolic composition engine for exploring music-theoretic decisions.**

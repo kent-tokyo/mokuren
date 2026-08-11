@@ -1,5 +1,9 @@
 # mokuren
 
+[![CI](https://github.com/kent-tokyo/mokuren/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/mokuren/actions/workflows/ci.yml)
+[![docs.rs](https://img.shields.io/docsrs/mokuren)](https://docs.rs/mokuren)
+[![License](https://img.shields.io/crates/l/mokuren)](#ライセンス)
+
 [English](README.md) | 日本語
 
 **mokuren — 音楽理論的な判断を探求するための、高速で説明可能な記号的作曲エンジン。**
