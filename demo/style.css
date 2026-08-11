@@ -37,6 +37,24 @@ h1 {
     margin-top: 0.25rem;
 }
 
+.header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.lang-toggle {
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--border);
+}
+
+.note {
+    color: #888;
+    font-size: 0.85em;
+    font-style: italic;
+}
+
 section {
     border: 1px solid var(--border);
     border-radius: 6px;
