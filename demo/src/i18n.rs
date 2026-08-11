@@ -13,17 +13,17 @@ pub enum Lang {
 }
 
 impl Lang {
-    pub fn toggled(self) -> Lang {
-        match self {
-            Lang::En => Lang::Ja,
-            Lang::Ja => Lang::En,
-        }
-    }
-
     pub fn label(self) -> &'static str {
         match self {
             Lang::En => "EN",
             Lang::Ja => "JA",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Lang {
+        match label {
+            "JA" => Lang::Ja,
+            _ => Lang::En,
         }
     }
 }
@@ -102,4 +102,17 @@ translations! {
         "Click to see why this alternative was (or wasn't) chosen over the selected chord.",
         "クリックすると、この候補が選ばれたコードに対してなぜ採用/不採用だったかを確認できます。",
     ),
+
+    beam_race_header => ("Beam Search Race", "ビームサーチ・レース"),
+    beam_race_tip => (
+        "Re-harmonizes the current melody at several beam widths, so you can see exactly how wide a beam this melody actually needs.",
+        "現在の旋律を複数のビーム幅で再和声付けし、この旋律に実際どれだけの幅が必要かを確認できます。",
+    ),
+    beam_race_button => ("Run beam search race", "ビームサーチ・レースを実行"),
+    beam_race_width_col => ("Width", "幅"),
+    beam_race_result_col => ("Result", "結果"),
+    beam_race_candidates_col => ("Candidates evaluated", "評価した候補数"),
+    beam_race_runtime_col => ("Runtime (ms)", "実行時間 (ms)"),
+    beam_race_success => ("SUCCESS", "成功"),
+    beam_race_fail => ("FAIL", "失敗"),
 }

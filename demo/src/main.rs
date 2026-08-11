@@ -95,6 +95,94 @@ fn AlternativesPanel(result: HarmonizationResult, position: usize) -> impl IntoV
     }
 }
 
+const RACE_WIDTHS: [usize; 7] = [4, 8, 16, 32, 64, 128, 256];
+
+#[component]
+fn BeamSearchRace(
+    melody_text: RwSignal<String>,
+    tonic_text: RwSignal<String>,
+    mode: RwSignal<Mode>,
+) -> impl IntoView {
+    let lang = use_lang();
+    let rows = RwSignal::new(Vec::<(usize, bool, u64, f64)>::new());
+    let running = RwSignal::new(false);
+
+    let run_race = move |_| {
+        rows.set(Vec::new());
+        running.set(true);
+        let melody = melody_text.get_untracked();
+        let tonic = tonic_text.get_untracked();
+        let mode = mode.get_untracked();
+        leptos::task::spawn_local(async move {
+            for &w in &RACE_WIDTHS {
+                // Yield to the browser between widths so the table (and
+                // the "running" state) actually repaints as it goes,
+                // instead of the whole race running as one blocking
+                // synchronous stretch — WASM has no threads here, so
+                // without this the tab would look frozen until every
+                // width finished.
+                gloo_timers::future::TimeoutFuture::new(0).await;
+                let start = js_sys::Date::now();
+                let outcome = harmonize(&melody, &tonic, mode, w);
+                let elapsed_ms = js_sys::Date::now() - start;
+                let (success, candidates) = match &outcome {
+                    Ok(result) => (true, result.diagnostics().candidates_generated),
+                    Err(_) => (false, 0),
+                };
+                rows.update(|r| r.push((w, success, candidates, elapsed_ms)));
+            }
+            running.set(false);
+        });
+    };
+
+    view! {
+        <section class="race" title=move || i18n::beam_race_tip(lang.get())>
+            <h2>{move || i18n::beam_race_header(lang.get())}</h2>
+            <button on:click=run_race disabled=move || running.get()>
+                {move || i18n::beam_race_button(lang.get())}
+            </button>
+            {move || {
+                (!rows.get().is_empty())
+                    .then(|| {
+                        view! {
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>{move || i18n::beam_race_width_col(lang.get())}</th>
+                                        <th>{move || i18n::beam_race_result_col(lang.get())}</th>
+                                        <th>{move || i18n::beam_race_candidates_col(lang.get())}</th>
+                                        <th>{move || i18n::beam_race_runtime_col(lang.get())}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {rows
+                                        .get()
+                                        .into_iter()
+                                        .map(|(w, success, candidates, ms)| {
+                                            let status = if success {
+                                                i18n::beam_race_success(lang.get())
+                                            } else {
+                                                i18n::beam_race_fail(lang.get())
+                                            };
+                                            view! {
+                                                <tr class:race-fail=!success>
+                                                    <td>{w}</td>
+                                                    <td>{status}</td>
+                                                    <td>{candidates}</td>
+                                                    <td>{format!("{ms:.1}")}</td>
+                                                </tr>
+                                            }
+                                        })
+                                        .collect_view()}
+                                </tbody>
+                            </table>
+                        }
+                    })
+            }}
+        </section>
+    }
+}
+
 #[component]
 fn App() -> impl IntoView {
     let lang = i18n::provide_lang();
@@ -127,9 +215,17 @@ fn App() -> impl IntoView {
                     <h1>"mokuren"</h1>
                     <p class="tagline">{move || i18n::tagline(lang.get())}</p>
                 </div>
-                <button class="lang-toggle" on:click=move |_| lang.update(|l| *l = l.toggled())>
-                    {move || lang.get().label()}
-                </button>
+                <select
+                    class="lang-toggle"
+                    on:change=move |ev| lang.set(i18n::Lang::from_label(&event_target_value(&ev)))
+                >
+                    <option value=i18n::Lang::En.label() selected=move || lang.get() == i18n::Lang::En>
+                        {i18n::Lang::En.label()}
+                    </option>
+                    <option value=i18n::Lang::Ja.label() selected=move || lang.get() == i18n::Lang::Ja>
+                        {i18n::Lang::Ja.label()}
+                    </option>
+                </select>
             </div>
 
             <section class="input">
@@ -172,6 +268,8 @@ fn App() -> impl IntoView {
                 </label>
                 <button on:click=move |_| run()>{move || i18n::harmonize_button(lang.get())}</button>
             </section>
+
+            <BeamSearchRace melody_text=melody_text tonic_text=tonic_text mode=mode />
 
             {move || {
                 result

@@ -130,3 +130,20 @@ pre {
     border-top: 1px dashed var(--border);
     padding-top: 0.75rem;
 }
+
+.race table {
+    border-collapse: collapse;
+    margin-top: 0.75rem;
+    width: 100%;
+}
+
+.race th,
+.race td {
+    text-align: left;
+    padding: 0.25rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.race tr.race-fail td {
+    color: #c0392b;
+}

@@ -5,5 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+gloo-timers = { version = "0.4.0", features = ["futures"] }
+js-sys = "0.3.104"
 leptos = { version = "0.8.20", features = ["csr"] }
 mokuren = { path = ".." }
