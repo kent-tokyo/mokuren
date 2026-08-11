@@ -1,5 +1,7 @@
 # mokuren
 
+**MOKUREN** — Music Optimization through Knowledge, Understanding, Reasoning, Explanation & Nuance
+
 [![CI](https://github.com/kent-tokyo/mokuren/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/mokuren/actions/workflows/ci.yml)
 [![docs.rs](https://img.shields.io/docsrs/mokuren)](https://docs.rs/mokuren)
 [![License](https://img.shields.io/crates/l/mokuren)](#ライセンス)
