@@ -126,6 +126,8 @@ button {
 pre {
     white-space: pre-wrap;
     background: transparent;
+    font-family: inherit;
+    font-size: inherit;
 }
 
 .diagnostics {
