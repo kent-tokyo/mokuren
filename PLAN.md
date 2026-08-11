@@ -238,6 +238,23 @@ opening a second plan doc):
     same horizon-effect pattern applied dominants first produced for
     major; default width (32) intentionally unchanged.
   - Full detail: `tasks/baseline-v0.5.0-minor-applied-dominants.md`.
+  - **v0.2.0 release gate** (user directive 2026-08-11): bisected all 6
+    `secondary-dominant-resolution` failures individually before cutting
+    the release. 2/6 are the soprano's final note only reachable via an
+    applied dominant (correctly rejected — same known limitation as
+    major's final-position behavior). 4/6 share one real cause: the
+    search can label an ambiguous chord as either a plain diatonic
+    numeral or an applied dominant with the identical sounding chord
+    (confirmed for two of them: `V/vi`'s own root coincides with
+    `III`'s), and if it picks the applied-dominant label, a later
+    resolution mismatch hard-rejects the continuation with no lookahead
+    to recover. 0 hard-rule violations throughout — not a bug in any
+    rule, a search/scoring limitation. Explicitly not patched with a
+    score adjustment (the exact trap that broke the pinned demo during
+    the original secondary-dominant work — see `tasks/lessons.md`);
+    documented in README instead and deferred to a v0.3 research item
+    (candidate-label equivalence / deferred harmonic interpretation,
+    `tasks/todo.md`).
 - Soprano-rest support (roadmap phase 4): `Melody`/`Composer::harmonize`
   are unchanged — still a plain, rest-free `Vec<Note>`. A new `MelodyLine`
   type (`src/melody.rs`) holds `Note`/`Rest` events; its `phrases()`

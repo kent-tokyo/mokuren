@@ -316,3 +316,50 @@ replaced the hardcoded lookup with a method whose *name* states the
 actual invariant ("whichever pitch functions as the leading tone right
 now"), so the next mode/quality addition has one obvious place to
 extend instead of another hardcoded call site to rediscover by hand.
+
+## Two different Roman numerals can name the same sounding chord, and committing to one label early can trap the search
+
+Bisecting the v0.5.0 minor-mode benchmark's 6 `secondary-dominant-resolution`
+failures (release gate before v0.2.0, 2026-08-11) found 4 of them share
+one root cause: `V/vi`'s own root (a perfect fifth above the submediant)
+can land on the exact same pitch class as the plain diatonic `III` —
+the identical root+quality+voicing options either way, just a different
+`RomanNumeral` label. The search generates *both* as separate
+candidates (different `degree`/`source`, same `Chord`) and picks
+whichever scores better locally; when it picks the applied-dominant
+label, `SecondaryDominantResolutionRule` then imposes a resolution
+obligation (the next chord's root must match vi) that the real melody
+has no intention of honoring, and the beam has no way to un-commit once
+that label won — even at width 512, the diatonic alternative had
+already been pruned out by the very next position. 0 hard-rule
+violations were maintained (the rule did exactly what it's designed to
+do); the actual defect is that the search treats "which Roman numeral"
+as decided the instant a chord is chosen, when for an ambiguous chord
+it isn't decided until later context confirms it.
+
+**Explicitly not fixed with a score tweak** — the same category of trap
+(a naive score change breaking an unrelated demo) already bit this
+project once, during the original secondary-dominant work: rewarding an
+applied dominant's resolution as strongly as an authentic cadence made
+the search substitute one for a diatonic chord anywhere it merely fit,
+not just where required. A repeat of that pattern here (e.g. penalizing
+applied-dominant introduction more) risks suppressing genuinely-needed
+applied dominants elsewhere in the corpus to fix 4/348 chorales.
+Documented as a known limitation instead (README "Current limitations"
+item 3) and deferred to a v0.3 research item: keep an ambiguous chord's
+multiple valid `RomanNumeral` interpretations alive as an equivalence
+class through the beam, and let the *next* transition — not the
+introduction itself — decide which interpretation was real.
+
+**The pattern**: a chord identity (root + quality + voicing) and its
+harmonic *label* (which scale degree, which function, whether it's
+"applied" to something) are two different things that this crate's
+`RomanNumeral` type currently fuses into one value at generation time.
+When two different labels can produce the identical sounding chord, the
+search's normal "pick the best-scoring candidate now" logic is exactly
+the kind of premature commitment that creates this trap — not a bug in
+any single rule, but a structural mismatch between how early the label
+gets fixed and how late enough information exists to know which label
+was correct. Worth checking for again whenever a new chromatic
+vocabulary addition can coincide in pitch with an existing diatonic (or
+other chromatic) one.

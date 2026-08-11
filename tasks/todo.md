@@ -115,14 +115,50 @@ scope and phasing — this is the flat, scannable version.
     hit" scale secondary dominants produced for major — a real but more
     modest first-pass result.
   - Full detail: `tasks/baseline-v0.5.0-minor-applied-dominants.md`.
+- ~~Bisect all 6 secondary-dominant-resolution failures (v0.2.0 release
+  gate, user directive 2026-08-11)~~ — **done**. All 6 individually
+  bisected and root-caused, none a hard-rule bug (0 violations held
+  throughout):
+  - **2/6** (Riemenschneider 162, 163): the soprano's *final* note is
+    only reachable via an applied dominant, correctly rejected as an
+    unresolved final chord — the same already-documented "applied
+    dominant can't close a phrase" behavior, newly triggered because
+    minor's applied-dominant vocabulary is new. Same underlying gap as
+    the major-mode non-chord-tone failures (README item 1).
+  - **4/6** (19, 226 — an identical recurring pattern — 56, 59):
+    mid-phrase. The search commits to an applied-dominant label (e.g.
+    `V6/vi`) for a chord that also has a valid plain-diatonic label
+    (e.g. `III`) with *identical* voicing options (confirmed for 19/226:
+    `V/vi`'s own root coincides with `III`'s root, since vi's dominant
+    is a 5th above vi = the same pitch class as the mediant). The melody's
+    actual next note doesn't resolve where the applied-dominant label
+    requires, and the search has no lookahead to avoid the trap.
+    Explicitly **not patched with a score adjustment** — the same trap
+    (naive score change breaking an unrelated demo) already bit this
+    project once during the original secondary-dominant work (see
+    `tasks/lessons.md`). Documented as a known limitation in README
+    (item 3) instead; the real fix is architectural (keep multiple
+    valid interpretations of an ambiguous chord alive until the next
+    transition disambiguates — candidate-label equivalence / deferred
+    interpretation), tracked as its own v0.3 research item below, not
+    rushed before v0.2.0.
+- **v0.3 research candidate**: candidate-label equivalence / deferred
+  harmonic interpretation, to structurally fix the 4 equivalent-label
+  failures above without touching score weights. Sketch: when a
+  candidate's sounding chord (root + quality + voicing) is identical
+  across two or more `RomanNumeral` interpretations (e.g. a diatonic one
+  and an applied-dominant one whose root coincides), keep the
+  interpretations bundled as an equivalence class through the beam
+  instead of committing to one label immediately — let the *next*
+  transition (does the following chord actually resolve the applied
+  reading, or not) pick which interpretation was "real." Start with a
+  small experiment, not a design doc — no weight changes.
 - **Next**: re-taxonomize what's still failing in minor (45
-  search-exhausted, 7 chordal-seventh-resolution, 6
-  secondary-dominant-resolution — new, not yet investigated, minor's
-  applied dominants hitting a resolution edge case major's corpus never
-  exercised — 11 voice-overlap) before picking the next phase. Original
-  order after minor applied dominants: adaptive/search-budget research,
-  then cadential-6/4 lookahead — not yet confirmed still the right next
-  step given the new secondary-dominant-resolution category.
+  search-exhausted, 7 chordal-seventh-resolution, 11 voice-overlap; the
+  6 secondary-dominant-resolution failures above are now understood and
+  documented, not "new") before picking the next phase. Original order
+  after minor applied dominants: adaptive/search-budget research, then
+  cadential-6/4 lookahead.
 - **Requested but not yet done**: a width-vs-coverage/runtime curve
   (32/64/128/256/512) across the *full* 182-chorale corpus (not just the
   failure subset the existing beam-width curve already covers), to
