@@ -1,7 +1,7 @@
 /target
 /demo/target
 /demo/dist
-.claude/settings.local.json
+/.claude/
 *.proptest-regressions
 
 # Internal planning doc, not part of the public repo.
