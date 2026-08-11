@@ -118,30 +118,66 @@ impl fmt::Display for HarmonicFunction {
     }
 }
 
-/// Standard tonic/predominant/dominant grouping for a diatonic major-key
-/// scale degree (I, iii, vi = tonic; ii, IV = predominant; V, vii° = dominant).
-fn harmonic_function_of_degree(degree: ScaleDegree) -> HarmonicFunction {
+/// Standard tonic/predominant/dominant grouping for a diatonic scale
+/// degree (I, iii, vi = tonic; ii, IV = predominant; V, vii° = dominant).
+/// Degree 7 needs `quality` too: major mode's vii° (diminished) and
+/// minor's harmonic-minor-raised vii° (also diminished) are dominant-
+/// function, but minor's *natural* VII (a major triad, the subtonic) is
+/// not the same chord and doesn't pull toward the tonic the same way —
+/// treated as predominant-ish (a known simplification; real pedagogy is
+/// more nuanced about the subtonic's function than this three-way split
+/// captures at all, minor or major).
+fn harmonic_function_of_degree(degree: ScaleDegree, quality: ChordQuality) -> HarmonicFunction {
     match degree.0 {
         1 | 3 | 6 => HarmonicFunction::Tonic,
         2 | 4 => HarmonicFunction::Predominant,
-        5 | 7 => HarmonicFunction::Dominant,
+        5 => HarmonicFunction::Dominant,
+        7 => {
+            if matches!(
+                quality,
+                ChordQuality::DiminishedTriad
+                    | ChordQuality::DiminishedSeventh
+                    | ChordQuality::HalfDiminishedSeventh
+            ) {
+                HarmonicFunction::Dominant
+            } else {
+                HarmonicFunction::Predominant
+            }
+        }
         _ => HarmonicFunction::Tonic,
     }
 }
 
-/// A diatonic Roman numeral, or an applied ("secondary") dominant.
+/// What kind of chord a `RomanNumeral` names, beyond its scale degree —
+/// distinguishes the three ways a numeral's root/quality can be derived,
+/// so a rule can pattern-match on *why* a numeral is chromatic instead of
+/// checking one boolean per chromatic feature (which would let
+/// meaningless combinations like "applied dominant that's also a raised
+/// leading tone" type-check). `Diatonic` covers every plain in-key
+/// triad/seventh in both major and natural minor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NumeralSource {
+    Diatonic,
+    /// Tonicizes `ScaleDegree` (e.g. `V/V`, `V7/vi`) rather than
+    /// resolving within the home key — see `applied_dominant`. `degree`
+    /// on a numeral with this source is always `ScaleDegree::DOMINANT`:
+    /// v0.1 only implements V/x and V7/x, not applied leading-tone
+    /// chords (vii°/x) — see ROADMAP.md.
+    AppliedDominant(ScaleDegree),
+    /// Uses the harmonic-minor raised 7th in place of natural minor's
+    /// own (lowered) 7th — see `RomanNumeral::harmonic_minor_vocabulary`.
+    /// Only meaningful in a minor key; never produced for major.
+    HarmonicMinorRaisedSeventh,
+}
+
+/// A diatonic Roman numeral, an applied ("secondary") dominant, or a
+/// harmonic-minor-altered numeral.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RomanNumeral {
     pub degree: ScaleDegree,
     pub quality: ChordQuality,
     pub inversion: ChordInversion,
-    /// `Some(target)` marks this as an applied dominant tonicizing
-    /// `target` (e.g. `V/V`, `V7/vi`) rather than a chord diatonic to the
-    /// key itself — see `applied_dominant`. Always `None` for the
-    /// diatonic vocabulary. `degree` on an applied numeral is always
-    /// `ScaleDegree::DOMINANT`: v0.1 only implements V/x and V7/x, not
-    /// applied leading-tone chords (vii°/x) — see ROADMAP.md.
-    pub applied_to: Option<ScaleDegree>,
+    pub source: NumeralSource,
 }
 
 impl RomanNumeral {
@@ -154,7 +190,7 @@ impl RomanNumeral {
             degree,
             quality,
             inversion,
-            applied_to: None,
+            source: NumeralSource::Diatonic,
         }
     }
 
@@ -166,6 +202,16 @@ impl RomanNumeral {
         RomanNumeral { inversion, ..self }
     }
 
+    /// `Some(target)` if this numeral is an applied dominant, matching
+    /// the old `applied_to: Option<ScaleDegree>` field's meaning —
+    /// convenience for call sites that only care about that one case.
+    pub fn applied_to(&self) -> Option<ScaleDegree> {
+        match self.source {
+            NumeralSource::AppliedDominant(target) => Some(target),
+            _ => None,
+        }
+    }
+
     /// The applied dominant (or applied dominant seventh) of `target` —
     /// the major triad or dominant seventh chord a perfect fifth above
     /// `target`'s own diatonic pitch, temporarily tonicizing it. Root
@@ -175,7 +221,7 @@ impl RomanNumeral {
             degree: ScaleDegree::DOMINANT,
             quality,
             inversion: ChordInversion::Root,
-            applied_to: Some(target),
+            source: NumeralSource::AppliedDominant(target),
         }
     }
 
@@ -234,21 +280,82 @@ impl RomanNumeral {
         ]
     }
 
+    /// Natural minor's seven diatonic triads (i, ii°, III, iv, v, VI,
+    /// VII) — every degree's quality differs from major's except the
+    /// diminished ii°. `v` here is a minor triad and `VII` a major triad
+    /// (the subtonic), both built on natural minor's own *unraised* 7th
+    /// degree. The far more common dominant-function alternatives (V,
+    /// V7, vii°, using the raised leading tone) are
+    /// `harmonic_minor_vocabulary` — offered *alongside* this set, not
+    /// replacing it, the same "offer more, let scoring decide" shape
+    /// `applied_dominant_vocabulary` already uses.
+    pub fn natural_minor_vocabulary() -> [RomanNumeral; 7] {
+        [
+            RomanNumeral::root_position(ScaleDegree::TONIC, ChordQuality::MinorTriad),
+            RomanNumeral::root_position(ScaleDegree::SUPERTONIC, ChordQuality::DiminishedTriad),
+            RomanNumeral::root_position(ScaleDegree::MEDIANT, ChordQuality::MajorTriad),
+            RomanNumeral::root_position(ScaleDegree::SUBDOMINANT, ChordQuality::MinorTriad),
+            RomanNumeral::root_position(ScaleDegree::DOMINANT, ChordQuality::MinorTriad),
+            RomanNumeral::root_position(ScaleDegree::SUBMEDIANT, ChordQuality::MajorTriad),
+            RomanNumeral::root_position(ScaleDegree::LEADING_TONE, ChordQuality::MajorTriad),
+        ]
+    }
+
+    /// The harmonic-minor-derived dominant-function chords — V, V7, and
+    /// vii° — each built using the raised leading tone in place of
+    /// natural minor's own (lowered) 7th (`NumeralSource::HarmonicMinorRaisedSeventh`).
+    /// This is what actually gives a minor-key cadence a real leading
+    /// tone; without it every "dominant" in a minor key would be the
+    /// weak natural-minor `v`/`VII` above. vii°7 (the fully diminished
+    /// seventh, whose chordal seventh sits on the *lowered* 6th) is
+    /// deliberately not included yet — narrower-than-full-theory first
+    /// pass, same scoping `applied_dominant_vocabulary` used for
+    /// secondary dominants; see ROADMAP.md.
+    pub fn harmonic_minor_vocabulary() -> [RomanNumeral; 3] {
+        let altered = |degree, quality| RomanNumeral {
+            degree,
+            quality,
+            inversion: ChordInversion::Root,
+            source: NumeralSource::HarmonicMinorRaisedSeventh,
+        };
+        [
+            altered(ScaleDegree::DOMINANT, ChordQuality::MajorTriad),
+            altered(ScaleDegree::DOMINANT, ChordQuality::DominantSeventh),
+            altered(ScaleDegree::LEADING_TONE, ChordQuality::DiminishedTriad),
+        ]
+    }
+
     pub fn harmonic_function(&self) -> HarmonicFunction {
-        harmonic_function_of_degree(self.degree)
+        harmonic_function_of_degree(self.degree, self.quality)
     }
 
     /// `None` only for an applied dominant whose root would need an
     /// accidental beyond what `Accidental` can represent (see
     /// `pitch::spell_above`) — unreachable for any diatonic numeral,
-    /// since `Key::new` already validated those. Fails closed, same
-    /// pattern as `Chord::pitch_classes`.
+    /// since `Key::new` already validated those (including, for a minor
+    /// key, its raised leading tone). Fails closed, same pattern as
+    /// `Chord::pitch_classes`.
     pub fn to_chord(&self, key: &Key) -> Option<Chord> {
-        let root = match self.applied_to {
-            None => key.diatonic_pitch_class(self.degree),
+        let root = match self.source {
+            NumeralSource::Diatonic => key.diatonic_pitch_class(self.degree),
             // A perfect fifth (4 letter-steps, 7 semitones) above the
             // tonicized target — its own dominant, borrowed.
-            Some(target) => spell_above(key.diatonic_pitch_class(target), 4, 7)?,
+            NumeralSource::AppliedDominant(target) => {
+                spell_above(key.diatonic_pitch_class(target), 4, 7)?
+            }
+            NumeralSource::HarmonicMinorRaisedSeventh
+                if self.degree == ScaleDegree::LEADING_TONE =>
+            {
+                // vii° is *built on* the raised leading tone.
+                key.functional_leading_tone()
+            }
+            NumeralSource::HarmonicMinorRaisedSeventh => {
+                // V/V7: the root (scale degree 5) doesn't change: the
+                // raised leading tone appears on its own as the third
+                // once `quality` stacks a major third instead of natural
+                // minor's own minor third — no special root needed.
+                key.diatonic_pitch_class(self.degree)
+            }
         };
         Some(Chord {
             root,
@@ -258,7 +365,7 @@ impl RomanNumeral {
 
     /// The pitch class this applied dominant resolves to, if it is one.
     pub fn resolution_target(&self, key: &Key) -> Option<PitchClass> {
-        self.applied_to.map(|t| key.diatonic_pitch_class(t))
+        self.applied_to().map(|t| key.diatonic_pitch_class(t))
     }
 
     /// The chromatic tone this applied dominant introduces — its own
@@ -267,7 +374,7 @@ impl RomanNumeral {
     /// tracks the diatonic one. `None` if this isn't an applied dominant,
     /// or (unreachably, for the same reason as `to_chord`) unspellable.
     pub fn applied_leading_tone(&self, key: &Key) -> Option<PitchClass> {
-        self.applied_to?;
+        self.applied_to()?;
         let tones = self.to_chord(key)?.pitch_classes().ok()?;
         tones.get(1).copied()
     }
@@ -295,7 +402,7 @@ impl fmt::Display for RomanNumeral {
             "{text}{}",
             self.inversion.figured_bass(self.quality.is_seventh())
         )?;
-        if let Some(target) = self.applied_to {
+        if let Some(target) = self.applied_to() {
             // The target is named, not voiced with its own inversion —
             // "V/ii", never "V/ii6" — matching how the target's own
             // diatonic quality (minor for ii/iii/vi) sets its case.
@@ -486,5 +593,77 @@ mod tests {
             RomanNumeral::applied_dominant(ScaleDegree::SUPERTONIC, ChordQuality::DominantSeventh);
         assert_eq!(rn.resolution_target(&Key::C_MAJOR), Some(PitchClass::D));
         assert_eq!(rn.to_string(), "V7/ii");
+    }
+
+    #[test]
+    fn a_minor_i_is_a_minor_triad_not_major() {
+        let i = RomanNumeral::natural_minor_vocabulary()[0];
+        let chord = i.to_chord(&Key::A_MINOR).unwrap();
+        assert_eq!(
+            chord.pitch_classes().unwrap(),
+            vec![PitchClass::A, PitchClass::C, PitchClass::E]
+        );
+        assert_eq!(i.to_string(), "i");
+    }
+
+    #[test]
+    fn a_minor_natural_vii_is_g_major_the_subtonic() {
+        let vii = RomanNumeral::natural_minor_vocabulary()[6];
+        assert_eq!(vii.degree, ScaleDegree::LEADING_TONE);
+        let chord = vii.to_chord(&Key::A_MINOR).unwrap();
+        assert_eq!(
+            chord.pitch_classes().unwrap(),
+            vec![PitchClass::G, PitchClass::B, PitchClass::D]
+        );
+        assert_eq!(vii.to_string(), "VII");
+        assert_eq!(vii.harmonic_function(), HarmonicFunction::Predominant);
+    }
+
+    #[test]
+    fn a_minor_harmonic_v_and_v7_use_the_raised_leading_tone() {
+        let g_sharp = PitchClass::new(NoteLetter::G, Accidental::Sharp);
+        let vocab = RomanNumeral::harmonic_minor_vocabulary();
+        let v = vocab[0];
+        let v7 = vocab[1];
+        assert_eq!(
+            v.to_chord(&Key::A_MINOR).unwrap().pitch_classes().unwrap(),
+            vec![PitchClass::E, g_sharp, PitchClass::B]
+        );
+        assert_eq!(v.to_string(), "V");
+        assert_eq!(v.harmonic_function(), HarmonicFunction::Dominant);
+        assert_eq!(
+            v7.to_chord(&Key::A_MINOR).unwrap().pitch_classes().unwrap(),
+            vec![PitchClass::E, g_sharp, PitchClass::B, PitchClass::D]
+        );
+    }
+
+    #[test]
+    fn a_minor_harmonic_vii_dim_is_built_on_the_raised_leading_tone() {
+        let g_sharp = PitchClass::new(NoteLetter::G, Accidental::Sharp);
+        let vii_dim = RomanNumeral::harmonic_minor_vocabulary()[2];
+        assert_eq!(vii_dim.degree, ScaleDegree::LEADING_TONE);
+        let chord = vii_dim.to_chord(&Key::A_MINOR).unwrap();
+        assert_eq!(chord.root, g_sharp);
+        assert_eq!(
+            chord.pitch_classes().unwrap(),
+            vec![g_sharp, PitchClass::B, PitchClass::D]
+        );
+        assert_eq!(vii_dim.to_string(), "vii°");
+        assert_eq!(vii_dim.harmonic_function(), HarmonicFunction::Dominant);
+    }
+
+    #[test]
+    fn harmonic_minor_source_is_distinct_from_applied_dominant_and_diatonic() {
+        // The tie-break/canonical-rank shape depends on `source` being a
+        // single enum rather than two independent optional markers —
+        // pin that a harmonic-minor numeral never reports as an applied
+        // dominant, and vice versa (see NumeralSource's doc comment).
+        let v = RomanNumeral::harmonic_minor_vocabulary()[0];
+        assert_eq!(v.applied_to(), None);
+        assert_eq!(v.source, NumeralSource::HarmonicMinorRaisedSeventh);
+
+        let v_of_v =
+            RomanNumeral::applied_dominant(ScaleDegree::DOMINANT, ChordQuality::MajorTriad);
+        assert_ne!(v_of_v.source, NumeralSource::HarmonicMinorRaisedSeventh);
     }
 }

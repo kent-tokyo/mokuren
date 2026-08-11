@@ -284,3 +284,35 @@ right. A script exists to inform a decision quickly; it doesn't inherit
 correctness from the thing it's investigating, and matching the real
 selection logic (by name, not position) here mattered enough to change
 which chorales counted as "excluded for a rest" at all.
+
+## A rule that hardcodes "look this up from the key" can silently stop applying when the key grows a new case
+
+`LeadingToneResolutionRule` and `LeadingToneDoublingRule` both computed
+"the leading tone" as `key.diatonic_pitch_class(ScaleDegree::LEADING_TONE)`
+— correct for the only mode that existed when they were written (major,
+where the plain diatonic 7th degree *is* the leading tone). Adding
+`Mode::Minor` didn't touch either rule's code at all, so neither one
+raised an error or a warning — they just kept computing natural minor's
+own *unraised* 7th degree, which doesn't function as a leading tone and
+never actually needs the raised harmonic-minor 7th to resolve or avoid
+being doubled. The bug wasn't "wrong behavior on existing input," it was
+"silently inapplicable to new input" — every minor-key chorale with a
+harmonic-minor V/V7/vii° would have had its raised leading tone go
+completely unchecked by two hard rules that exist specifically to
+constrain it. Caught during implementation, before any benchmark run,
+by re-reading every call site of `diatonic_pitch_class(LEADING_TONE)`
+while adding `Mode::Minor` rather than assuming existing rules would
+"just work" once the new vocabulary existed to trigger them.
+
+**The pattern**: when a new variant of an existing concept is added
+(a new `Mode`, a new candidate source, a new input shape), grep for
+every place the *old* assumption was hardcoded rather than trusting
+that unrelated code will either keep working or fail loudly. A rule
+that silently stops applying to a whole new category of input is a
+harder bug to catch than one that crashes or visibly misbehaves —
+nothing in the type system or the test suite flags "this rule was
+supposed to fire here and didn't." `Key::functional_leading_tone()`
+replaced the hardcoded lookup with a method whose *name* states the
+actual invariant ("whichever pitch functions as the leading tone right
+now"), so the next mode/quality addition has one obvious place to
+extend instead of another hardcoded call site to rediscover by hand.

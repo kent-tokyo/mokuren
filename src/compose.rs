@@ -149,6 +149,32 @@ mod tests {
     }
 
     #[test]
+    fn minor_key_melody_harmonizes_end_to_end() {
+        // A minor, closing i - ... - V - i. G#4 isn't in natural A minor
+        // (G natural is) — only the harmonic-minor-altered V/V7/vii° (see
+        // chord.rs's `NumeralSource::HarmonicMinorRaisedSeventh`) contain
+        // it, so this soprano note forces the search onto that vocabulary.
+        let melody = Melody::parse("A4 C5 B4 G#4 A4").unwrap();
+        let result = Composer::new()
+            .key(Key::A_MINOR)
+            .style(Style::CommonPractice)
+            .harmonize(melody)
+            .unwrap();
+        assert_eq!(result.decisions.len(), 5);
+        assert!(
+            result
+                .decisions
+                .iter()
+                .all(|d| d.selected_candidate().is_valid())
+        );
+        let g_sharp_position = result.decisions[3].selected();
+        assert_eq!(
+            g_sharp_position.source,
+            crate::chord::NumeralSource::HarmonicMinorRaisedSeventh
+        );
+    }
+
+    #[test]
     fn soprano_touching_a5_still_harmonizes() {
         // A5 is above the pre-widening soprano ceiling (G5, see
         // src/voice.rs) — 5 real Bach chorales in the v0.1.0 baseline
@@ -184,7 +210,7 @@ mod tests {
         assert_eq!(result.decisions.len(), 4);
         let chromatic_position = result.decisions[2].selected();
         assert!(
-            chromatic_position.applied_to.is_some(),
+            chromatic_position.applied_to().is_some(),
             "expected an applied dominant at the F#4 position, got {chromatic_position}"
         );
     }
@@ -212,7 +238,7 @@ mod tests {
                 .iter()
                 .all(|d| d.selected_candidate().is_valid())
         );
-        assert!(result.decisions[1].selected().applied_to.is_some());
-        assert!(result.decisions[2].selected().applied_to.is_some());
+        assert!(result.decisions[1].selected().applied_to().is_some());
+        assert!(result.decisions[2].selected().applied_to().is_some());
     }
 }

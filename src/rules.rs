@@ -298,7 +298,7 @@ impl Rule for LeadingToneDoublingRule {
         Severity::Hard
     }
     fn evaluate(&self, ctx: &RuleContext) -> RuleResult {
-        let leading_tone = ctx.key.diatonic_pitch_class(ScaleDegree::LEADING_TONE);
+        let leading_tone = ctx.key.functional_leading_tone();
         let count = VoicePart::all()
             .into_iter()
             .filter(|&v| {
@@ -343,7 +343,7 @@ impl Rule for LeadingToneResolutionRule {
         {
             return RuleResult::pass();
         }
-        let leading_tone = ctx.key.diatonic_pitch_class(ScaleDegree::LEADING_TONE);
+        let leading_tone = ctx.key.functional_leading_tone();
         let tonic = ctx.key.diatonic_pitch_class(ScaleDegree::TONIC);
         for voice in VoicePart::all() {
             let prev_pitch = prev.pitch(voice);
@@ -464,7 +464,7 @@ impl Rule for SecondaryDominantResolutionRule {
         Severity::Hard
     }
     fn evaluate(&self, ctx: &RuleContext) -> RuleResult {
-        if ctx.roman_numeral.applied_to.is_some() && ctx.is_final_position {
+        if ctx.roman_numeral.applied_to().is_some() && ctx.is_final_position {
             return RuleResult::violation(self.id(), self.severity());
         }
         let (Some(prev), Some(prev_rn)) = (ctx.previous, ctx.previous_roman_numeral) else {
@@ -473,7 +473,7 @@ impl Rule for SecondaryDominantResolutionRule {
         let Some(target_pc) = prev_rn.resolution_target(ctx.key) else {
             return RuleResult::pass();
         };
-        if ctx.roman_numeral.applied_to == prev_rn.applied_to {
+        if ctx.roman_numeral.applied_to() == prev_rn.applied_to() {
             return RuleResult::pass();
         }
         if !ctx.chord.root.is_enharmonic_to(&target_pc) {
@@ -617,7 +617,7 @@ impl Rule for HarmonicFunctionProgressionRule {
         // existing (already-sensible) score.
         let delta = if is_correct_secondary_resolution && to == HarmonicFunction::Predominant {
             0.3
-        } else if ctx.roman_numeral.applied_to.is_some() {
+        } else if ctx.roman_numeral.applied_to().is_some() {
             // Introducing an applied dominant is scored on its own terms
             // — voice leading now, and the resolution reward above once
             // it actually resolves — not via the diatonic table, which
@@ -821,7 +821,7 @@ impl Style {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pitch::{Octave, Pitch};
+    use crate::pitch::{Accidental, NoteLetter, Octave, Pitch};
 
     #[allow(clippy::too_many_arguments)]
     fn ctx<'a>(
@@ -932,6 +932,63 @@ mod tests {
             &good_curr,
             &chord,
             &RomanNumeral::I,
+            false,
+        ));
+        assert_eq!(result.status, RuleStatus::Pass);
+    }
+
+    #[test]
+    fn minor_key_raised_leading_tone_must_also_resolve_up() {
+        // The natural (unraised) 7th, G, wouldn't be caught by this rule
+        // at all before `Key::functional_leading_tone` existed — only
+        // the *raised* G# (harmonic minor's own leading tone) should be.
+        let key = Key::A_MINOR;
+        let g_sharp = PitchClass::new(NoteLetter::G, Accidental::Sharp);
+        let harmonic_v = RomanNumeral::harmonic_minor_vocabulary()[0];
+        let i = RomanNumeral::natural_minor_vocabulary()[0];
+        let prev_chord = harmonic_v.to_chord(&key).unwrap();
+        let chord = i.to_chord(&key).unwrap();
+        // Previous: soprano holds G#4 (the raised leading tone).
+        let prev = v(
+            (g_sharp, 4),
+            (PitchClass::B, 3),
+            (PitchClass::E, 3),
+            (PitchClass::E, 2),
+        );
+        // Soprano leaps down to E4 instead of resolving up to A4.
+        let bad_curr = v(
+            (PitchClass::E, 4),
+            (PitchClass::C, 4),
+            (PitchClass::A, 3),
+            (PitchClass::A, 2),
+        );
+        let result = LeadingToneResolutionRule.evaluate(&ctx(
+            &key,
+            Some(&prev),
+            Some(&prev_chord),
+            Some(&harmonic_v),
+            &bad_curr,
+            &chord,
+            &i,
+            false,
+        ));
+        assert_eq!(result.status, RuleStatus::Violation);
+
+        // Soprano resolves up to A4: passes.
+        let good_curr = v(
+            (PitchClass::A, 4),
+            (PitchClass::C, 4),
+            (PitchClass::E, 3),
+            (PitchClass::A, 2),
+        );
+        let result = LeadingToneResolutionRule.evaluate(&ctx(
+            &key,
+            Some(&prev),
+            Some(&prev_chord),
+            Some(&harmonic_v),
+            &good_curr,
+            &chord,
+            &i,
             false,
         ));
         assert_eq!(result.status, RuleStatus::Pass);

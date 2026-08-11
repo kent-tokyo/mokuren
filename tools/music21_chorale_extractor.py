@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Extracts Bach chorales from a local music21 install into mokuren's
-`.chorale` v2 fixture format (BENCHMARK.md), for
+`.chorale` v3 fixture format (BENCHMARK.md), for
 `examples/chorale_benchmark.rs`.
 
 Decided as the canonical external source (BENCHMARK.md, 2026-08-10):
@@ -16,7 +16,7 @@ Requires: pip install music21 (with its bundled corpus — no network
 access needed at extraction time).
 
 Usage:
-    python3 tools/music21_chorale_extractor.py --major-only -o /path/to/output
+    python3 tools/music21_chorale_extractor.py -o /path/to/output
 
 What it does NOT do, on purpose:
   - It does not build an independent onset grid for alto/tenor/bass.
@@ -35,6 +35,11 @@ What it does NOT do, on purpose:
     harmonizing (see examples/chorale_benchmark.rs's MelodyLine::phrases
     usage). Alto/tenor/bass reference pitches are still sampled only at
     soprano *note* onsets — a rest has no onset to sample against.
+  - It does not skip minor-mode chorales anymore — mokuren's `Mode::Minor`
+    (natural minor + the harmonic-minor-derived V/V7/vii°) covers the
+    common case; music21's `key.mode` ("major"/"minor") is passed straight
+    through as the fixture's `mode:` field. Modes music21 itself doesn't
+    resolve to major/minor (rare in this corpus) are still skipped.
 """
 
 import argparse
@@ -98,8 +103,8 @@ def extract_chorale(chorale):
         return None, "soprano is nothing but rests"
 
     key = chorale.analyze("key")
-    if key.mode != "major":
-        return None, f"mode is {key.mode!r}, not major (mokuren doesn't support minor yet)"
+    if key.mode not in ("major", "minor"):
+        return None, f"mode is {key.mode!r} (mokuren only supports major/minor)"
 
     time_sigs = chorale.parts[0].flatten().getElementsByClass("TimeSignature")
     meter = time_sigs[0].ratioString if time_sigs else "4/4"
@@ -136,6 +141,7 @@ def extract_chorale(chorale):
         [
             f"name: {title} (Riemenschneider {riemenschneider})",
             f"key: {tonic}",
+            f"mode: {key.mode}",
             f"meter: {meter}",
             "soprano:",
             *soprano_lines,
@@ -151,7 +157,6 @@ def extract_chorale(chorale):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-o", "--output", required=True, type=Path, help="output directory for .chorale files")
-    parser.add_argument("--major-only", action="store_true", default=True, help="skip minor-mode chorales (default: on, since mokuren doesn't support minor yet)")
     parser.add_argument("--limit", type=int, default=None, help="stop after this many successfully extracted chorales")
     args = parser.parse_args()
 
@@ -183,9 +188,8 @@ def main():
         "source": "music21",
         "music21_version": music21.__version__,
         "numbering": "riemenschneider",
-        "adapter_version": "1",
+        "adapter_version": "2",
         "adapter_script": "tools/music21_chorale_extractor.py",
-        "major_only": args.major_only,
         "extracted_count": len(extracted),
         "skipped_count": len(skipped),
         "selected_ids": [e["riemenschneider"] for e in extracted],

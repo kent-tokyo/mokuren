@@ -25,6 +25,7 @@
 //! ```text
 //! name: <label>
 //! key: <tonic pitch class, e.g. C, F#, Bb>
+//! mode: <major | minor — optional, defaults to major>
 //! meter: <e.g. 4/4 — carried through, not yet consumed by any rule>
 //! soprano:
 //! <offset in quarter-note beats> <pitch or REST> <duration, as a fraction of a whole note, e.g. 1/4>
@@ -57,6 +58,7 @@
 
 use mokuren::diagnostics::Diagnostics;
 use mokuren::generate::{CandidateGenerator, CandidateStatus};
+use mokuren::key::Mode;
 use mokuren::melody::{Duration as NoteDuration, MelodyEvent, MelodyLine, Note, Position, Rest};
 use mokuren::pitch::Pitch;
 use mokuren::prelude::*;
@@ -165,7 +167,7 @@ fn build_soprano_line(events: &[SopranoEvent]) -> std::result::Result<MelodyLine
 }
 
 fn parse_chorale_fixture(text: &str) -> std::result::Result<Vec<ChoraleFixture>, String> {
-    let (mut name, mut key, mut meter) = (None, None, None);
+    let (mut name, mut tonic, mut mode, mut meter) = (None, None, None, None);
     let (mut alto, mut tenor, mut bass) = (None, None, None);
     let mut soprano_events: Vec<SopranoEvent> = Vec::new();
     let mut in_soprano_block = false;
@@ -179,8 +181,9 @@ fn parse_chorale_fixture(text: &str) -> std::result::Result<Vec<ChoraleFixture>,
         if line.starts_with('#') {
             continue;
         }
-        const KNOWN_FIELDS: [&str; 7] =
-            ["name", "key", "meter", "soprano", "alto", "tenor", "bass"];
+        const KNOWN_FIELDS: [&str; 8] = [
+            "name", "key", "mode", "meter", "soprano", "alto", "tenor", "bass",
+        ];
         let starts_new_field = line
             .split_once(':')
             .is_some_and(|(field, _)| KNOWN_FIELDS.contains(&field.trim()));
@@ -199,10 +202,17 @@ fn parse_chorale_fixture(text: &str) -> std::result::Result<Vec<ChoraleFixture>,
                 let pc: mokuren::pitch::PitchClass = value
                     .parse()
                     .map_err(|e| format!("bad key {value:?}: {e}"))?;
-                key = Some(
-                    Key::new(pc, mokuren::key::Mode::Major)
-                        .map_err(|e| format!("key {value:?} is not constructible: {e}"))?,
-                );
+                tonic = Some(pc);
+            }
+            // Absent means major — keeps every pre-v3-with-mode fixture
+            // (and any hand-written one that doesn't care) parseable
+            // without change.
+            "mode" => {
+                mode = Some(match value {
+                    "major" => Mode::Major,
+                    "minor" => Mode::Minor,
+                    other => return Err(format!("unknown mode {other:?} (expected major/minor)")),
+                });
             }
             "meter" => meter = Some(value.to_string()),
             "soprano" => in_soprano_block = true,
@@ -215,7 +225,9 @@ fn parse_chorale_fixture(text: &str) -> std::result::Result<Vec<ChoraleFixture>,
 
     let _meter = meter; // carried through for future use; not consumed by any rule yet.
     let base_name = name.ok_or("missing `name:`")?;
-    let key = key.ok_or("missing `key:`")?;
+    let tonic = tonic.ok_or("missing `key:`")?;
+    let key = Key::new(tonic, mode.unwrap_or(Mode::Major))
+        .map_err(|e| format!("key {tonic:?} is not constructible: {e}"))?;
     let line = build_soprano_line(&soprano_events)?;
     let phrases = line.phrases();
     if phrases.is_empty() {
@@ -319,12 +331,20 @@ fn is_harmonically_unreachable(pitch_class: mokuren::pitch::PitchClass, key: &Ke
     if key.degree_of(pitch_class).is_some() {
         return false;
     }
-    !RomanNumeral::applied_dominant_vocabulary()
-        .iter()
-        .any(|rn| {
-            rn.to_chord(key)
-                .is_some_and(|chord| chord.contains_pitch_class(pitch_class))
-        })
+    // The chromatic layer that could still reach this tone differs by
+    // mode (applied dominants in major, the harmonic-minor-raised
+    // V/V7/vii° in minor — chord.rs) — checking the wrong one here is
+    // the exact mistake this crate's own history already made once
+    // (applied dominants landing without `classify_failure` updating to
+    // match, see tasks/lessons.md), just for minor mode instead of major.
+    let extra_vocabulary: Vec<RomanNumeral> = match key.mode {
+        Mode::Major => RomanNumeral::applied_dominant_vocabulary(),
+        Mode::Minor => RomanNumeral::harmonic_minor_vocabulary().to_vec(),
+    };
+    !extra_vocabulary.iter().any(|rn| {
+        rn.to_chord(key)
+            .is_some_and(|chord| chord.contains_pitch_class(pitch_class))
+    })
 }
 
 fn has_unsupported_chromatic_tone(melody: &Melody, key: &Key) -> bool {
@@ -357,7 +377,7 @@ fn numeral_voicing_key(rn: &RomanNumeral, v: &Voicing) -> (NumeralRank, VoicingR
             rn.degree.0,
             rn.quality as u8,
             rn.inversion as u8,
-            rn.applied_to.map_or(0, |d| d.0),
+            rn.applied_to().map_or(0, |d| d.0),
         ),
         (
             v.soprano.midi(),

@@ -2,7 +2,7 @@
 
 This is the "fix the protocol before running it" document requested alongside the ROADMAP.md landscape update. It fixes *what* the benchmark measures and *what corpus it's allowed to touch*. No chorale data is vendored into this repository — see [Corpus source](#corpus-source-approach-decided-specific-source-still-open) below.
 
-**Status**: the harness (`examples/chorale_benchmark.rs`) and the music21 extraction adapter (`tools/music21_chorale_extractor.py`) are implemented and validated three times now — [v0.1.0 baseline](#v010-baseline-full-major-mode-subset-2026-08-10) (144 chorales), [v0.2.0-in-progress baseline](#v020-in-progress-baseline-secondary-dominants--soprano-range-fix-2026-08-11) (same 144), and [v0.3.0-in-progress baseline](#v030-in-progress-baseline-soprano-rest-phrase-splitting-2026-08-11) (expanded to 182 chorales) — establishing the "benchmark → failure decomposition → next feature → re-benchmark" loop this project now runs on (ROADMAP.md's "Verification-first phase").
+**Status**: the harness (`examples/chorale_benchmark.rs`) and the music21 extraction adapter (`tools/music21_chorale_extractor.py`) are implemented and validated four times now — [v0.1.0 baseline](#v010-baseline-full-major-mode-subset-2026-08-10) (144 chorales), [v0.2.0-in-progress baseline](#v020-in-progress-baseline-secondary-dominants--soprano-range-fix-2026-08-11) (same 144), [v0.3.0-in-progress baseline](#v030-in-progress-baseline-soprano-rest-phrase-splitting-2026-08-11) (expanded to 182 chorales), and [v0.4.0-in-progress baseline](#v040-in-progress-baseline-minor-mode-2026-08-11) (expanded to 348, major + minor) — establishing the "benchmark → failure decomposition → next feature → re-benchmark" loop this project now runs on.
 
 Fixture format is v3 (rest-aware; v1 forced every note to a quarter, silently discarding real chorale rhythm; v2 couldn't represent a rest at all — see `tasks/lessons.md`). Full spec is documented in `examples/chorale_benchmark.rs`'s module doc comment; `cargo doc --open` or read the file directly.
 
@@ -86,6 +86,16 @@ Re-extracted corpus (same music21 install/version) with the extractor's "soprano
 - Voice-leading cost, cadence distribution (69.2% authentic vs 69.9%), and explanation completeness (`why()` 96.9% vs 98.0% — expected: new phrase-opening positions behave like position 0, README limitation #8) are all in the same range as v0.2.0. Runtime is *lower* despite the larger corpus (median ~1.4s vs 2.9s/chorale, on a different run/machine-load than the v0.2.0 measurement) — plausibly phrase-splitting (the 38 multi-phrase chorales never carry a full-length beam in one pass), but the single-phrase majority did identical work to v0.2.0, so this isn't fully attributed; not investigated further since it's a beneficial direction, not a regression.
 
 Reproduce: `python3 tools/music21_chorale_extractor.py -o <dir>` then `cargo run --release --example chorale_benchmark -- <dir> --report tasks/baseline-v0.3.0-soprano-rest.md`.
+
+## v0.4.0-in-progress baseline (minor mode, 2026-08-11)
+
+Re-extracted corpus (same music21 install/version) with the extractor's `key.mode != "major"` filter removed — a `mode: major|minor` fixture field is emitted instead. Full results and per-chorale table: [`tasks/baseline-v0.4.0-minor-mode.md`](tasks/baseline-v0.4.0-minor-mode.md). Summary:
+
+- **Corpus grew from 182 to 348 chorales** (+166 minor-mode chorales, +91%) — every Riemenschneider chorale music21 resolves to major or minor is now attemptable.
+- **Major: 172/182 (94.5%)**, unchanged from the pre-minor baseline, zero regressions directly confirmed — the `NumeralSource` refactor (`RomanNumeral::applied_to: Option<ScaleDegree>` became an enum distinguishing `Diatonic`/`AppliedDominant`/`HarmonicMinorRaisedSeventh`, which minor mode's own chromatic layer needed) didn't touch major's behavior.
+- **Minor: 71/166 (42.8%)** — a genuinely lower first-pass number, predicted in writing before the run (advisor review): minor mode has no applied dominants yet and no melodic minor (raised 6th), so a soprano tone needing either has no chord at all in the current vocabulary. 77% of minor's 105 failures are exactly that (`chromatic soprano unsupported`). A bisected sample of the smaller rule-conflict categories (voice-overlap, leading-tone-resolution) traced to the same root cause — too few candidate chords/voicings at the dominant scale degree, not a distinct bug.
+- Design stayed narrower than full minor-key theory on purpose (same scoping secondary dominants used): `Mode::Minor` is natural minor; the harmonic-minor-derived V/V7/vii° are an additional chromatic vocabulary layer, not a `Key` redesign. `vii°7` (fully diminished seventh) deliberately excluded — its chordal seventh sits on the lowered 6th, the exact scale degree `ChordalSeventhResolutionRule` already produces failures on, which would make a new failure ambiguous between "minor is wrong" and "the seventh rule is too strict."
+- 0 hard-rule violations maintained across all 348 chorales.
 
 ## Phasing
 

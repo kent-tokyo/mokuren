@@ -48,7 +48,7 @@ fn path_key(path: &[(RomanNumeral, Voicing)]) -> Vec<(RomanNumeralRank, VoicingK
                     rn.degree.0,
                     rn.quality as u8,
                     rn.inversion as u8,
-                    rn.applied_to.map_or(0, |d| d.0),
+                    rn.applied_to().map_or(0, |d| d.0),
                 ),
                 (
                     v.soprano.midi(),

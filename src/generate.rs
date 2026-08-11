@@ -12,7 +12,7 @@
 
 use crate::chord::{Chord, ChordInversion, RomanNumeral};
 use crate::diagnostics::Diagnostics;
-use crate::key::Key;
+use crate::key::{Key, Mode};
 use crate::pitch::{Octave, Pitch, PitchClass};
 use crate::rules::{Rule, RuleContext, RuleId, RuleStatus, Style};
 use crate::score::{Penalty, Reason, ScoreBreakdown};
@@ -73,7 +73,7 @@ fn canonical_rank(rn: &RomanNumeral) -> (u8, u8, u8, u8) {
         rn.degree.0,
         rn.quality as u8,
         rn.inversion as u8,
-        rn.applied_to.map_or(0, |d| d.0),
+        rn.applied_to().map_or(0, |d| d.0),
     )
 }
 
@@ -86,11 +86,25 @@ fn voicing_key(v: &Voicing) -> (i32, i32, i32, i32) {
     )
 }
 
-fn harmonic_vocabulary() -> Vec<RomanNumeral> {
+/// The mode determines which base vocabulary applies — major's diatonic
+/// set plus applied dominants, or minor's natural-diatonic set plus the
+/// harmonic-minor-altered dominant-function chords (`chord.rs`'s doc
+/// comments explain why the latter is a *chromatic layer* rather than a
+/// different `Mode`). Applied dominants aren't offered in a minor key
+/// yet — a deliberately narrower first pass for minor mode, not
+/// attempted this pass; see ROADMAP.md.
+fn harmonic_vocabulary(mode: Mode) -> Vec<RomanNumeral> {
     let mut out = Vec::new();
-    let numerals = RomanNumeral::diatonic_vocabulary()
-        .into_iter()
-        .chain(RomanNumeral::applied_dominant_vocabulary());
+    let numerals: Vec<RomanNumeral> = match mode {
+        Mode::Major => RomanNumeral::diatonic_vocabulary()
+            .into_iter()
+            .chain(RomanNumeral::applied_dominant_vocabulary())
+            .collect(),
+        Mode::Minor => RomanNumeral::natural_minor_vocabulary()
+            .into_iter()
+            .chain(RomanNumeral::harmonic_minor_vocabulary())
+            .collect(),
+    };
     for rn in numerals {
         let inversions: &[ChordInversion] = if rn.quality.is_seventh() {
             &[
@@ -143,7 +157,7 @@ impl<'a> CandidateGenerator<'a> {
     ) -> Vec<EvaluatedCandidate> {
         let rules = self.style.rules();
         let previous_chord = previous_roman_numeral.and_then(|rn| rn.to_chord(self.key));
-        harmonic_vocabulary()
+        harmonic_vocabulary(self.key.mode)
             .into_iter()
             .filter_map(|rn| {
                 // An applied dominant whose root can't be spelled simply
@@ -301,6 +315,7 @@ fn evaluate(
 mod tests {
     use super::*;
     use crate::key::Key;
+    use crate::pitch::{Accidental, NoteLetter};
 
     #[test]
     fn c4_soprano_in_c_major_offers_every_diatonic_chord_containing_c() {
@@ -317,7 +332,7 @@ mod tests {
         // checks the diatonic vocabulary only (`applied_to.is_none()`).
         let diatonic_numerals: std::collections::HashSet<_> = candidates
             .iter()
-            .filter(|c| c.roman_numeral.applied_to.is_none())
+            .filter(|c| c.roman_numeral.applied_to().is_none())
             .map(|c| c.roman_numeral.degree.0)
             .collect();
         assert!(diatonic_numerals.contains(&1)); // I
@@ -332,9 +347,48 @@ mod tests {
         assert!(
             candidates
                 .iter()
-                .any(|c| c.roman_numeral.applied_to == Some(crate::key::ScaleDegree::SUBDOMINANT))
+                .any(|c| c.roman_numeral.applied_to() == Some(crate::key::ScaleDegree::SUBDOMINANT))
         );
         assert!(diag.candidates_generated > 0);
+    }
+
+    #[test]
+    fn harmonic_minor_vii_dim_has_at_least_one_valid_voicing_despite_no_root_doubling() {
+        // vii° root position forces the leading tone into *both* soprano
+        // (fixed here) and bass (the inversion's designated chord tone),
+        // which `LeadingToneDoublingRule` (hard) always rejects — vii°
+        // is only reachable at all via an inversion whose bass isn't the
+        // root (vii°6 in real practice). Confirms the chord isn't
+        // vocabulary-only dead weight that never survives to a valid
+        // candidate.
+        let key = Key::A_MINOR;
+        let style = Style::CommonPractice;
+        let generator = CandidateGenerator::new(&key, &style);
+        let mut diag = Diagnostics::default();
+        let g_sharp = Pitch::new(PitchClass::new(NoteLetter::G, Accidental::Sharp), Octave(4));
+        let candidates = generator.generate(g_sharp, None, None, false, &mut diag);
+        let vii_candidates: Vec<_> = candidates
+            .iter()
+            .filter(|c| {
+                c.roman_numeral.source == crate::chord::NumeralSource::HarmonicMinorRaisedSeventh
+                    && c.roman_numeral.degree == crate::key::ScaleDegree::LEADING_TONE
+            })
+            .collect();
+        assert!(
+            !vii_candidates.is_empty(),
+            "vii° should be offered for a G# soprano in A minor"
+        );
+        assert!(
+            vii_candidates.iter().any(|c| c.is_valid()),
+            "expected at least one valid vii° voicing (via an inversion that doesn't double the leading tone), got {:?}",
+            vii_candidates.iter().map(|c| &c.status).collect::<Vec<_>>()
+        );
+        // Root position specifically should never be the valid one.
+        let root_position = vii_candidates
+            .iter()
+            .find(|c| c.roman_numeral.inversion == ChordInversion::Root)
+            .expect("root position vii° should still be offered (just invalid)");
+        assert!(!root_position.is_valid());
     }
 
     #[test]

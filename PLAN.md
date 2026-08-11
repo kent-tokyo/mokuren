@@ -172,6 +172,46 @@ opening a second plan doc):
     Not attempted this pass (`tasks/todo.md`) — a genuinely different
     kind of extension (letting a soprano note sit outside the chord)
     from what secondary dominants added (more chords to choose from).
+- Minor mode (roadmap phase 3): `Mode::Minor` added as natural minor
+  (matching the key signature); the harmonic-minor-derived V, V7, vii°
+  (using the raised leading tone) are an additional chromatic vocabulary
+  layer alongside the seven natural-minor diatonic triads, the same
+  "extra vocabulary, not a redesign" shape secondary dominants used —
+  not a new `Mode` variant, since a piece doesn't change key signature
+  to use the raised 7th. `RomanNumeral::applied_to: Option<ScaleDegree>`
+  was refactored into `NumeralSource` (`Diatonic` / `AppliedDominant` /
+  `HarmonicMinorRaisedSeventh`) so a rule can distinguish *why* a
+  numeral is chromatic instead of stacking booleans — advisor-flagged
+  before implementing, given the project already got burned once by a
+  tie-break field added ad hoc for `applied_to`.
+  - Real bug found and fixed before it shipped: `LeadingToneResolutionRule`/
+    `LeadingToneDoublingRule` computed "the leading tone" via
+    `key.diatonic_pitch_class(LEADING_TONE)`, which is natural minor's
+    own *unraised* 7th — meaning neither rule would have recognized or
+    enforced resolution of the harmonic-minor *raised* leading tone at
+    all. Fixed with `Key::functional_leading_tone()` (major: the plain
+    diatonic 7th, unchanged; minor: the raised 7th).
+  - `HarmonicFunctionProgressionRule`'s degree→function table gained a
+    quality check at degree 7: a major-triad VII (natural minor's
+    subtonic) isn't the same chord as a diminished vii° and shouldn't
+    score as a dominant-function arrival the way vii°/harmonic-minor
+    vii° do.
+  - Re-run against an expanded corpus (182 → 348, +166 minor chorales):
+    major unchanged at 94.5% (172/182, zero regressions, directly
+    diffed); minor 42.8% (71/166) — a first-pass number, predicted in
+    writing before running (per an advisor review) to land well below
+    major's, since minor has no applied dominants yet and no melodic
+    minor (raised 6th) — 77% of minor's failures are exactly a soprano
+    tone with no chord in the vocabulary for either reason. Bisected one
+    of the smaller rule-conflict failures (Riemenschneider 367, B minor)
+    and confirmed it traces to the same root cause (too few dominant-area
+    voicing choices), not a distinct bug.
+  - Deliberately deferred, same narrower-than-full-theory scoping applied
+    dominants used: `vii°7` (its chordal seventh sits on the lowered
+    6th — the same degree `ChordalSeventhResolutionRule` already
+    produces failures on), applied dominants in minor keys, melodic
+    minor. See `tasks/todo.md`.
+  - Full detail: `tasks/baseline-v0.4.0-minor-mode.md`, `BENCHMARK.md`.
 - Soprano-rest support (roadmap phase 4): `Melody`/`Composer::harmonize`
   are unchanged — still a plain, rest-free `Vec<Note>`. A new `MelodyLine`
   type (`src/melody.rs`) holds `Note`/`Rest` events; its `phrases()`

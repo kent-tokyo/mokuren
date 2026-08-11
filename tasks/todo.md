@@ -81,12 +81,28 @@ scope and phasing — this is the flat, scannable version.
   original 144. Surfaced a third instance of the chordal-seventh/
   non-chord-tone gap (Riemenschneider 132, see "Real correctness gaps"
   below). Full detail: `tasks/baseline-v0.3.0-soprano-rest.md`.
+- ~~Minor + harmonic minor (roadmap phase 3)~~ — done 2026-08-11:
+  `Mode::Minor` (natural minor) plus the harmonic-minor-derived V/V7/vii°
+  as an additional chromatic vocabulary layer (`NumeralSource` enum
+  replacing the old `applied_to: Option<ScaleDegree>` field). Found and
+  fixed a real bug before shipping: `LeadingToneResolutionRule`/
+  `LeadingToneDoublingRule` weren't recognizing the *raised* leading tone
+  in minor at all (`Key::functional_leading_tone()` fixes this). Corpus
+  grew 182 → 348 (+166 minor chorales); coverage: major unchanged 94.5%
+  (172/182, zero regressions), minor 42.8% (71/166) — a first-pass
+  number, expected to be well below major's since minor has no applied
+  dominants yet and no melodic minor. Deliberately deferred: `vii°7`,
+  applied dominants in minor keys, melodic minor (see "Real correctness
+  gaps" below). Full detail: `tasks/baseline-v0.4.0-minor-mode.md`.
 - **Next, per the user's approved order (2026-08-11)**: ① secondary
-  dominants + bisection — done. ② soprano-rest support — done, above.
-  ③ minor + harmonic minor (roadmap phase 3) — next. ④ adaptive/
-  search-budget research — see the width-curve item below. ⑤
-  cadential-6/4 lookahead (roadmap phase 6, still deprioritized — 0
-  baseline failures traced to it).
+  dominants + bisection — done. ② soprano-rest support — done. ③ minor +
+  harmonic minor — done, above. ④ adaptive/search-budget research — see
+  the width-curve item below, next. ⑤ cadential-6/4 lookahead (roadmap
+  phase 6, still deprioritized — 0 baseline failures traced to it).
+  Also newly candidate for the next slot, not yet prioritized against
+  ④/⑤: applied dominants for minor keys — the single largest lever on
+  minor's 42.8% coverage per the v0.4.0 baseline's failure taxonomy
+  (77% of minor's failures are exactly this gap).
 - **Requested but not yet done**: a width-vs-coverage/runtime curve
   (32/64/128/256/512) across the *full* 182-chorale corpus (not just the
   failure subset the existing beam-width curve already covers), to
@@ -125,12 +141,21 @@ scope and phasing — this is the flat, scannable version.
   non-chromatic path, not by the rule itself permitting the chain),
   strict (no inner-voice-exception) resolution. Roadmap phase 2
   follow-up, not currently scheduled.
-- Minor mode isn't just "add a Mode variant" — `RomanNumeral`'s chord
-  qualities are currently hardcoded consts assuming major
-  (`RomanNumeral::I` = `MajorTriad`, always). Minor mode requires deciding
-  whether quality becomes key/mode-derived instead of intrinsic to
-  `RomanNumeral` — an API shape decision. Roadmap phase 3 (sequenced
-  after secondary dominants — see above).
+- ~~Minor mode isn't just "add a Mode variant"~~ — resolved 2026-08-11,
+  see above; kept as a pointer since the follow-up gaps below are real:
+  - **Minor has no applied dominants yet** — the single largest lever on
+    minor's 42.8% coverage (77% of its failures are a soprano tone with
+    no chord in the vocabulary at all, v0.4.0 baseline). Mechanically
+    similar to major's existing `applied_dominant_vocabulary`, but not
+    attempted this pass to keep the first minor-mode pass narrow.
+  - **No melodic minor** (the raised-6th convention used to avoid an
+    augmented-second melodic interval between the natural 6th and
+    raised 7th) — any soprano note needing it is unharmonizable.
+  - **`vii°7`** (the fully diminished seventh on the raised leading
+    tone) isn't in the vocabulary — its chordal seventh sits on the
+    *lowered* 6th, the same scale degree `ChordalSeventhResolutionRule`
+    already produces 3 failures on, so it was deliberately left out of
+    the first pass rather than risk an ambiguous new failure.
 - Six-four handling is backward-looking only (pedal/passing bass check),
   can't confirm a true cadential 6/4 resolves to V. Fixing this properly
   needs the rule engine to see forward context, which it currently doesn't
