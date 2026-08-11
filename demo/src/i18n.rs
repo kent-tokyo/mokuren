@@ -145,4 +145,7 @@ translations! {
         "Wall-clock time for the search at this width, measured in this browser.",
         "この幅での探索にかかった実時間(このブラウザでの計測値)。",
     ),
+
+    play_button => ("▶ Play", "▶ 再生"),
+    playing_label => ("Playing…", "再生中…"),
 }

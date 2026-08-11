@@ -5,19 +5,26 @@
 //! straight off `data-position` attributes VexFlow's own SVG notes carry
 //! after rendering; see notation.js.
 
+use crate::i18n::{self, use_lang};
 use leptos::prelude::*;
 use mokuren::explain::HarmonizationResult;
 use mokuren::key::{Key, Mode};
-use mokuren::melody::Meter;
+use mokuren::melody::{Meter, Part, Score};
 use mokuren::pitch::Pitch;
 use mokuren::voice::VoicePart;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
+/// Moderate tempo (andante) — fast enough that a several-chord
+/// progression doesn't drag, slow enough to actually hear each chord.
+const PLAYBACK_BPM: f64 = 96.0;
+
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_namespace = window, js_name = mokurenRenderScore)]
     fn mokuren_render_score(json: &str);
+    #[wasm_bindgen(js_namespace = window, js_name = mokurenPlayProgression)]
+    fn mokuren_play_progression(json: &str);
 }
 
 #[derive(serde::Serialize)]
@@ -59,8 +66,7 @@ fn vexflow_key_spec(key: &Key) -> String {
     }
 }
 
-fn notation_json(result: &HarmonizationResult, selected_position: Option<usize>) -> String {
-    let score = result.to_score(Meter::FOUR_FOUR);
+fn satb_parts(score: &Score) -> [&Part; 4] {
     let part = |voice| {
         score
             .passage
@@ -69,12 +75,17 @@ fn notation_json(result: &HarmonizationResult, selected_position: Option<usize>)
             .find(|p| p.voice == voice)
             .expect("to_score() always produces all four SATB parts")
     };
-    let (soprano, alto, tenor, bass) = (
+    [
         part(VoicePart::Soprano),
         part(VoicePart::Alto),
         part(VoicePart::Tenor),
         part(VoicePart::Bass),
-    );
+    ]
+}
+
+fn notation_json(result: &HarmonizationResult, selected_position: Option<usize>) -> String {
+    let score = result.to_score(Meter::FOUR_FOUR);
+    let [soprano, alto, tenor, bass] = satb_parts(&score);
     let positions = result
         .decisions
         .iter()
@@ -95,12 +106,61 @@ fn notation_json(result: &HarmonizationResult, selected_position: Option<usize>)
     serde_json::to_string(&notation).expect("NotationScore is plain data and always serializes")
 }
 
+#[derive(serde::Serialize)]
+struct PlaybackScore {
+    bpm: f64,
+    positions: Vec<PlaybackPosition>,
+}
+
+#[derive(serde::Serialize)]
+struct PlaybackPosition {
+    start_beat: f64,
+    duration_beats: f64,
+    midis: [i32; 4],
+}
+
+/// The JSON payload for `window.mokurenPlayProgression`, plus the total
+/// duration in beats so the caller can time re-enabling the Play button
+/// without a JS -> Rust callback.
+fn playback_json(result: &HarmonizationResult) -> (String, f64) {
+    let score = result.to_score(Meter::FOUR_FOUR);
+    let [soprano, alto, tenor, bass] = satb_parts(&score);
+    let mut start_beat = 0.0;
+    let positions = (0..result.decisions.len())
+        .map(|i| {
+            let duration_beats = soprano.notes[i].duration.beats();
+            let position = PlaybackPosition {
+                start_beat,
+                duration_beats,
+                midis: [
+                    soprano.notes[i].pitch.midi(),
+                    alto.notes[i].pitch.midi(),
+                    tenor.notes[i].pitch.midi(),
+                    bass.notes[i].pitch.midi(),
+                ],
+            };
+            start_beat += duration_beats;
+            position
+        })
+        .collect();
+    let playback = PlaybackScore {
+        bpm: PLAYBACK_BPM,
+        positions,
+    };
+    let json = serde_json::to_string(&playback)
+        .expect("PlaybackScore is plain data and always serializes");
+    (json, start_beat)
+}
+
 #[component]
 pub fn Notation(
     result: HarmonizationResult,
     selected_position: RwSignal<Option<usize>>,
 ) -> impl IntoView {
+    let lang = use_lang();
     let node_ref: NodeRef<leptos::html::Div> = NodeRef::new();
+    let playing = RwSignal::new(false);
+    let result_for_play = result.clone();
 
     Effect::new(move |_| {
         if node_ref.get().is_none() {
@@ -126,8 +186,33 @@ pub fn Notation(
         }
     };
 
+    let on_play = move |_| {
+        if playing.get_untracked() {
+            return;
+        }
+        playing.set(true);
+        let (json, total_beats) = playback_json(&result_for_play);
+        mokuren_play_progression(&json);
+        let total_ms = (total_beats * 60_000.0 / PLAYBACK_BPM) as u32;
+        leptos::task::spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(total_ms).await;
+            playing.set(false);
+        });
+    };
+
     view! {
         <section class="notation-wrap">
+            <div class="notation-toolbar">
+                <button on:click=on_play disabled=move || playing.get()>
+                    {move || {
+                        if playing.get() {
+                            i18n::playing_label(lang.get())
+                        } else {
+                            i18n::play_button(lang.get())
+                        }
+                    }}
+                </button>
+            </div>
             <div id="notation" node_ref=node_ref on:click=on_click></div>
         </section>
     }

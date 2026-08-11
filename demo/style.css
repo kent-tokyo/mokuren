@@ -207,6 +207,10 @@ pre {
     overflow-x: auto;
 }
 
+.notation-toolbar {
+    margin-bottom: 0.75rem;
+}
+
 #notation {
     cursor: pointer;
     background: #fff;
