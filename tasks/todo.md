@@ -94,35 +94,35 @@ scope and phasing — this is the flat, scannable version.
   dominants yet and no melodic minor. Deliberately deferred: `vii°7`,
   applied dominants in minor keys, melodic minor (see "Real correctness
   gaps" below). Full detail: `tasks/baseline-v0.4.0-minor-mode.md`.
-- **Re-prioritized 2026-08-11 (user directive)**: minor applied
-  dominants moved ahead of adaptive/search-budget research. Rationale
-  (numbers, not vibes): major 94.5% (172/182) vs minor 42.8% (71/166),
-  0 hard-rule violations maintained, and minor's dominant failure mode
-  is *missing candidates* (no chord for the note at all), not *search
-  missing a candidate that exists* — adaptive beam only helps the
-  latter, so vocabulary has the bigger lever right now. New order: ①
-  minor applied dominants (data-driven, see below) → ② re-measure full
-  348-chorale baseline, diff major (must stay 172/182, 0 regressions)
-  and minor (classify improved/regressed/unchanged per chorale) → ③
-  taxonomize all remaining minor failures → ④ melodic minor (raised
-  6th) → ⑤ re-measure → ⑥ adaptive/search-budget research → ⑦
-  cadential-6/4 lookahead.
-  - **Explicit instruction on ①**: do not just copy major's
-    `applied_dominant_vocabulary()` onto minor — the
-    tonicization-target/altered-scale-degree relationship is more
-    involved in minor. Bisect real minor failures *first* to find which
-    specific targets (V/III, V/iv, V/V, V/VI, V7/..., vii°/... —
-    candidates, not a final list) actually recur in the corpus, and
-    implement only what the data supports.
-  - **Success bar, stated numerically, not "implemented" as success**:
-    zero regressions among major's 172/182 (per-chorale diff, not
-    assumed), 0 hard-rule violations maintained, minor before/after
-    diffed per-chorale (improved/regressed/unchanged classified
-    explicitly), score weights not touched purely to inflate coverage.
-    Target: minor 42.8% → 65–75% is a real win; ~80% would match the
-    scale of what secondary dominants did for major. Whatever's still
-    failing after that cleanly separates the next root cause (melodic
-    minor vs non-chord tones vs cadential 6/4 vs search budget).
+- ~~Re-prioritized 2026-08-11 (user directive): minor applied
+  dominants~~ — **done 2026-08-11**. `--minor-gap-report` (new CLI mode)
+  classified every minor-key unreachable chromatic soprano tone from
+  the v0.4.0 failures before implementing anything: 79 chorales needed
+  V(7)/ii, 68 V(7)/V, 65 the melodic-minor raised 6th, 16 V(7)/IV, 1
+  V(7)/vi, 0 V(7)/iii — 100% classified. V/III excluded from the
+  implementation (zero evidence); melodic minor's raised 6th (ii, IV
+  alternates) pulled forward from its own later phase into this same
+  pass, since applied dominants alone would only have fully resolved
+  16/81 chorales vs. 65/81 needing the raised 6th too.
+  - Success bar (stated numerically in advance) fully met: major
+    unchanged 172/182 (94.5%, zero regressions, directly diffed), 0
+    hard-rule violations maintained, minor 42.8% → 64.5% (71/166 →
+    107/166, +36 net, per-chorale diffed). 18 minor chorales regressed
+    from the vocabulary roughly doubling again — all 18 confirmed
+    beam-width-recoverable (not assumed), the same horizon-effect
+    pattern applied dominants first produced for major.
+  - 64.5% lands just under the "65–75% real win" bar, not the "~80% big
+    hit" scale secondary dominants produced for major — a real but more
+    modest first-pass result.
+  - Full detail: `tasks/baseline-v0.5.0-minor-applied-dominants.md`.
+- **Next**: re-taxonomize what's still failing in minor (45
+  search-exhausted, 7 chordal-seventh-resolution, 6
+  secondary-dominant-resolution — new, not yet investigated, minor's
+  applied dominants hitting a resolution edge case major's corpus never
+  exercised — 11 voice-overlap) before picking the next phase. Original
+  order after minor applied dominants: adaptive/search-budget research,
+  then cadential-6/4 lookahead — not yet confirmed still the right next
+  step given the new secondary-dominant-resolution category.
 - **Requested but not yet done**: a width-vs-coverage/runtime curve
   (32/64/128/256/512) across the *full* 182-chorale corpus (not just the
   failure subset the existing beam-width curve already covers), to
@@ -162,20 +162,22 @@ scope and phasing — this is the flat, scannable version.
   strict (no inner-voice-exception) resolution. Roadmap phase 2
   follow-up, not currently scheduled.
 - ~~Minor mode isn't just "add a Mode variant"~~ — resolved 2026-08-11,
-  see above; kept as a pointer since the follow-up gaps below are real:
-  - **Minor has no applied dominants yet** — the single largest lever on
-    minor's 42.8% coverage (77% of its failures are a soprano tone with
-    no chord in the vocabulary at all, v0.4.0 baseline). Mechanically
-    similar to major's existing `applied_dominant_vocabulary`, but not
-    attempted this pass to keep the first minor-mode pass narrow.
-  - **No melodic minor** (the raised-6th convention used to avoid an
-    augmented-second melodic interval between the natural 6th and
-    raised 7th) — any soprano note needing it is unharmonizable.
+  see above; ~~"minor has no applied dominants yet"~~ and ~~"no melodic
+  minor"~~ below are also resolved (2026-08-11, see the minor applied
+  dominants entry above) — kept as a pointer since real gaps remain:
+  - Melodic minor's raised 6th is only offered via alternate ii/IV, not
+    a general convention — no other chord uses it, and descending
+    motion (which reverts to natural minor) isn't distinguished from
+    ascending. See README's "Current limitations" item 7.
   - **`vii°7`** (the fully diminished seventh on the raised leading
     tone) isn't in the vocabulary — its chordal seventh sits on the
     *lowered* 6th, the same scale degree `ChordalSeventhResolutionRule`
-    already produces 3 failures on, so it was deliberately left out of
-    the first pass rather than risk an ambiguous new failure.
+    already produces failures on, so it was deliberately left out
+    rather than risk an ambiguous new failure.
+  - New, surfaced by the v0.5.0 re-run: 6 minor chorales fail with
+    `rule conflict (secondary dominant resolution)` — minor's new
+    applied dominants hitting a resolution edge case major's corpus
+    never exercised. Not bisected yet.
 - Six-four handling is backward-looking only (pedal/passing bass check),
   can't confirm a true cadential 6/4 resolves to V. Fixing this properly
   needs the rule engine to see forward context, which it currently doesn't

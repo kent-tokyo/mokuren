@@ -331,15 +331,18 @@ fn is_harmonically_unreachable(pitch_class: mokuren::pitch::PitchClass, key: &Ke
     if key.degree_of(pitch_class).is_some() {
         return false;
     }
-    // The chromatic layer that could still reach this tone differs by
-    // mode (applied dominants in major, the harmonic-minor-raised
-    // V/V7/vii° in minor — chord.rs) — checking the wrong one here is
-    // the exact mistake this crate's own history already made once
-    // (applied dominants landing without `classify_failure` updating to
-    // match, see tasks/lessons.md), just for minor mode instead of major.
+    // The chromatic layer(s) that could still reach this tone differ by
+    // mode (chord.rs) — checking the wrong one here is the exact mistake
+    // this crate's own history already made once (applied dominants
+    // landing without `classify_failure` updating to match, see
+    // tasks/lessons.md), just for minor mode instead of major.
     let extra_vocabulary: Vec<RomanNumeral> = match key.mode {
         Mode::Major => RomanNumeral::applied_dominant_vocabulary(),
-        Mode::Minor => RomanNumeral::harmonic_minor_vocabulary().to_vec(),
+        Mode::Minor => RomanNumeral::harmonic_minor_vocabulary()
+            .into_iter()
+            .chain(RomanNumeral::minor_applied_dominant_vocabulary())
+            .chain(RomanNumeral::melodic_minor_vocabulary())
+            .collect(),
     };
     !extra_vocabulary.iter().any(|rn| {
         rn.to_chord(key)

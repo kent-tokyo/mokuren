@@ -168,6 +168,10 @@ pub enum NumeralSource {
     /// own (lowered) 7th — see `RomanNumeral::harmonic_minor_vocabulary`.
     /// Only meaningful in a minor key; never produced for major.
     HarmonicMinorRaisedSeventh,
+    /// Uses the melodic-minor raised 6th in place of natural minor's own
+    /// (lowered) 6th — see `RomanNumeral::melodic_minor_vocabulary`.
+    /// Only meaningful in a minor key; never produced for major.
+    MelodicMinorRaisedSixth,
 }
 
 /// A diatonic Roman numeral, an applied ("secondary") dominant, or a
@@ -325,6 +329,59 @@ impl RomanNumeral {
         ]
     }
 
+    /// Applied dominants for minor keys — V/x and V7/x for the targets
+    /// real corpus data actually needed (`examples/chorale_benchmark.rs
+    /// --minor-gap-report`, 2026-08-11): x in {ii, IV, V, vi}. Unlike
+    /// major's `applied_dominant_vocabulary`, V/III is *not* included —
+    /// zero of the bisected minor chorales needed it, so it's left out
+    /// rather than assumed to generalize from major's own target set.
+    /// (V/V tonicizes the harmonic-minor dominant itself — a standard
+    /// "dominant of the dominant," not a contradiction.)
+    pub fn minor_applied_dominant_vocabulary() -> Vec<RomanNumeral> {
+        [
+            ScaleDegree::SUPERTONIC,
+            ScaleDegree::SUBDOMINANT,
+            ScaleDegree::DOMINANT,
+            ScaleDegree::SUBMEDIANT,
+        ]
+        .into_iter()
+        .flat_map(|target| {
+            [
+                RomanNumeral::applied_dominant(target, ChordQuality::MajorTriad),
+                RomanNumeral::applied_dominant(target, ChordQuality::DominantSeventh),
+            ]
+        })
+        .collect()
+    }
+
+    /// The two chords that actually change shape under melodic minor's
+    /// raised 6th, in Common Practice minor-key writing: ii becomes a
+    /// minor triad (not natural minor's diminished ii°) and IV becomes a
+    /// major triad (not natural minor's minor iv) — both by definition,
+    /// since the raised 6th is *part of* each chord's own stacked-thirds
+    /// structure (ii's fifth; IV's third), the same "just a different
+    /// quality at an unchanged root" mechanism `harmonic_minor_vocabulary`
+    /// uses for the raised 7th, verified the same way before writing this.
+    /// Scoped to only these two — a real, if partial, common-practice
+    /// convention (not full melodic-minor: descending motion, and any
+    /// other chord touching the submediant, still use the natural 6th)
+    /// — because real corpus data showed the raised 6th mattering in 65
+    /// of 81 chromatic-soprano minor failures (`--minor-gap-report`,
+    /// 2026-08-11), too large to leave deferred alongside vii°7/melodic
+    /// minor's other conventions.
+    pub fn melodic_minor_vocabulary() -> [RomanNumeral; 2] {
+        let altered = |degree, quality| RomanNumeral {
+            degree,
+            quality,
+            inversion: ChordInversion::Root,
+            source: NumeralSource::MelodicMinorRaisedSixth,
+        };
+        [
+            altered(ScaleDegree::SUPERTONIC, ChordQuality::MinorTriad),
+            altered(ScaleDegree::SUBDOMINANT, ChordQuality::MajorTriad),
+        ]
+    }
+
     pub fn harmonic_function(&self) -> HarmonicFunction {
         harmonic_function_of_degree(self.degree, self.quality)
     }
@@ -337,7 +394,12 @@ impl RomanNumeral {
     /// `Chord::pitch_classes`.
     pub fn to_chord(&self, key: &Key) -> Option<Chord> {
         let root = match self.source {
-            NumeralSource::Diatonic => key.diatonic_pitch_class(self.degree),
+            // A raised-6th numeral (ii, IV) doesn't need a different
+            // root either — same reasoning as V/V7 below, just for the
+            // submediant instead of the leading tone.
+            NumeralSource::Diatonic | NumeralSource::MelodicMinorRaisedSixth => {
+                key.diatonic_pitch_class(self.degree)
+            }
             // A perfect fifth (4 letter-steps, 7 semitones) above the
             // tonicized target — its own dominant, borrowed.
             NumeralSource::AppliedDominant(target) => {
@@ -665,5 +727,66 @@ mod tests {
         let v_of_v =
             RomanNumeral::applied_dominant(ScaleDegree::DOMINANT, ChordQuality::MajorTriad);
         assert_ne!(v_of_v.source, NumeralSource::HarmonicMinorRaisedSeventh);
+    }
+
+    #[test]
+    fn a_minor_v_of_v_tonicizes_e_the_natural_dominant() {
+        // "Dominant of the dominant" — a real, standard technique, not a
+        // contradiction with harmonic minor's own V.
+        let v_of_v = RomanNumeral::minor_applied_dominant_vocabulary()
+            .into_iter()
+            .find(|rn| {
+                rn.applied_to() == Some(ScaleDegree::DOMINANT)
+                    && rn.quality == ChordQuality::MajorTriad
+            })
+            .unwrap();
+        assert_eq!(v_of_v.resolution_target(&Key::A_MINOR), Some(PitchClass::E));
+        let chord = v_of_v.to_chord(&Key::A_MINOR).unwrap();
+        let d_sharp = PitchClass::new(NoteLetter::D, Accidental::Sharp);
+        let f_sharp = PitchClass::new(NoteLetter::F, Accidental::Sharp);
+        assert_eq!(
+            chord.pitch_classes().unwrap(),
+            vec![PitchClass::B, d_sharp, f_sharp]
+        );
+        assert_eq!(v_of_v.to_string(), "V/V");
+    }
+
+    #[test]
+    fn minor_applied_dominant_vocabulary_excludes_iii() {
+        // Real corpus data (examples/chorale_benchmark.rs
+        // --minor-gap-report, 2026-08-11) found zero minor chorales
+        // needing V/III — pin that it's not offered, so a future
+        // "just copy major's set" edit gets caught here.
+        assert!(
+            RomanNumeral::minor_applied_dominant_vocabulary()
+                .iter()
+                .all(|rn| rn.applied_to() != Some(ScaleDegree::MEDIANT))
+        );
+    }
+
+    #[test]
+    fn a_minor_melodic_minor_ii_is_a_minor_triad_not_diminished() {
+        let ii = RomanNumeral::melodic_minor_vocabulary()[0];
+        assert_eq!(ii.degree, ScaleDegree::SUPERTONIC);
+        let f_sharp = PitchClass::new(NoteLetter::F, Accidental::Sharp);
+        assert_eq!(
+            ii.to_chord(&Key::A_MINOR).unwrap().pitch_classes().unwrap(),
+            vec![PitchClass::B, PitchClass::D, f_sharp]
+        );
+        assert_eq!(ii.to_string(), "ii");
+        assert_eq!(ii.harmonic_function(), HarmonicFunction::Predominant);
+    }
+
+    #[test]
+    fn a_minor_melodic_minor_iv_is_a_major_triad_not_minor() {
+        let iv = RomanNumeral::melodic_minor_vocabulary()[1];
+        assert_eq!(iv.degree, ScaleDegree::SUBDOMINANT);
+        let f_sharp = PitchClass::new(NoteLetter::F, Accidental::Sharp);
+        assert_eq!(
+            iv.to_chord(&Key::A_MINOR).unwrap().pitch_classes().unwrap(),
+            vec![PitchClass::D, f_sharp, PitchClass::A]
+        );
+        assert_eq!(iv.to_string(), "IV");
+        assert_eq!(iv.harmonic_function(), HarmonicFunction::Predominant);
     }
 }

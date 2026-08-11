@@ -86,13 +86,14 @@ fn voicing_key(v: &Voicing) -> (i32, i32, i32, i32) {
     )
 }
 
-/// The mode determines which base vocabulary applies — major's diatonic
-/// set plus applied dominants, or minor's natural-diatonic set plus the
-/// harmonic-minor-altered dominant-function chords (`chord.rs`'s doc
-/// comments explain why the latter is a *chromatic layer* rather than a
-/// different `Mode`). Applied dominants aren't offered in a minor key
-/// yet — a deliberately narrower first pass for minor mode, not
-/// attempted this pass; see ROADMAP.md.
+/// The mode determines which base vocabulary applies. Major: the
+/// diatonic set plus applied dominants for x in {ii, iii, IV, V, vi}.
+/// Minor: the natural-diatonic set plus three chromatic layers
+/// (`chord.rs`'s doc comments explain why these are layers rather than
+/// a different `Mode`) — the harmonic-minor-altered V/V7/vii°, applied
+/// dominants for x in {ii, IV, V, vi} (V/III excluded — real corpus
+/// data found no minor chorale needing it), and the melodic-minor
+/// raised-6th ii/IV.
 fn harmonic_vocabulary(mode: Mode) -> Vec<RomanNumeral> {
     let mut out = Vec::new();
     let numerals: Vec<RomanNumeral> = match mode {
@@ -103,6 +104,8 @@ fn harmonic_vocabulary(mode: Mode) -> Vec<RomanNumeral> {
         Mode::Minor => RomanNumeral::natural_minor_vocabulary()
             .into_iter()
             .chain(RomanNumeral::harmonic_minor_vocabulary())
+            .chain(RomanNumeral::minor_applied_dominant_vocabulary())
+            .chain(RomanNumeral::melodic_minor_vocabulary())
             .collect(),
     };
     for rn in numerals {

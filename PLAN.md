@@ -212,6 +212,32 @@ opening a second plan doc):
     produces failures on), applied dominants in minor keys, melodic
     minor. See `tasks/todo.md`.
   - Full detail: `tasks/baseline-v0.4.0-minor-mode.md`, `BENCHMARK.md`.
+- Minor applied dominants + melodic minor (re-prioritized ahead of
+  adaptive/search-budget research by explicit user directive
+  2026-08-11: minor's failure mode was missing candidates outright, not
+  search missing an existing one, so vocabulary had the bigger lever).
+  Vocabulary chosen from real corpus evidence via a new
+  `--minor-gap-report` CLI mode, not copied from major: bisecting the
+  v0.4.0 minor failures found 79 chorales needing V(7)/ii, 68 V(7)/V,
+  65 the melodic-minor raised 6th, 16 V(7)/IV, 1 V(7)/vi, 0 V(7)/iii —
+  100% classified. V/III excluded from the implementation on that
+  basis; raised 6th (originally deferred as "melodic minor" to a later
+  phase) pulled forward into this pass since applied dominants alone
+  would only have fully resolved 16/81 chorales, vs. 65/81 needing the
+  raised 6th too.
+  - `RomanNumeral::minor_applied_dominant_vocabulary()` (V/x, V7/x for
+    x in {ii, IV, V, vi}) and `melodic_minor_vocabulary()` (ii as a
+    minor triad, IV as a major triad) both reuse the "same root,
+    different quality" trick harmonic minor's V/V7 already established
+    — verified by hand before implementing, same as before.
+  - Re-run: major unchanged 172/182 (94.5%, zero regressions, directly
+    diffed); minor 42.8% → 64.5% (71/166 → 107/166, +36 net). 0
+    hard-rule violations maintained. 18 minor chorales regressed from
+    the vocabulary roughly doubling again — all 18 confirmed
+    beam-width-recoverable (directly retested at width 64–512), the
+    same horizon-effect pattern applied dominants first produced for
+    major; default width (32) intentionally unchanged.
+  - Full detail: `tasks/baseline-v0.5.0-minor-applied-dominants.md`.
 - Soprano-rest support (roadmap phase 4): `Melody`/`Composer::harmonize`
   are unchanged — still a plain, rest-free `Vec<Note>`. A new `MelodyLine`
   type (`src/melody.rs`) holds `Note`/`Rest` events; its `phrases()`
