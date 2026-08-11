@@ -1,0 +1,114 @@
+:root {
+    color-scheme: light dark;
+    --fg: #1a1a1a;
+    --bg: #fafafa;
+    --border: #d0d0d0;
+    --accent: #6a4fb6;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --fg: #e8e8e8;
+        --bg: #16161a;
+        --border: #3a3a42;
+        --accent: #b39ddb;
+    }
+}
+
+body {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color: var(--fg);
+    background: var(--bg);
+    margin: 0;
+    padding: 1.5rem;
+}
+
+main {
+    max-width: 60rem;
+    margin: 0 auto;
+}
+
+h1 {
+    margin-bottom: 0;
+}
+
+.tagline {
+    color: var(--accent);
+    margin-top: 0.25rem;
+}
+
+section {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    margin: 1rem 0;
+}
+
+.input label {
+    display: inline-block;
+    margin-right: 1rem;
+}
+
+.input input,
+.input select {
+    font-family: inherit;
+    font-size: inherit;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.25rem 0.4rem;
+}
+
+button {
+    font-family: inherit;
+    font-size: inherit;
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: 4px;
+    padding: 0.3rem 0.7rem;
+    cursor: pointer;
+}
+
+.progression ul,
+.alternatives {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.progression button,
+.alternatives button {
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--border);
+}
+
+.alternatives button.selected {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+}
+
+pre {
+    white-space: pre-wrap;
+    background: transparent;
+}
+
+.diagnostics {
+    color: #888;
+    font-size: 0.9em;
+}
+
+.error {
+    color: #c0392b;
+}
+
+.why-not {
+    margin-top: 0.75rem;
+    border-top: 1px dashed var(--border);
+    padding-top: 0.75rem;
+}

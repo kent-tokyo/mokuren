@@ -1,0 +1,70 @@
+name: Deploy demo to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'demo/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/deploy-demo.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: trunk build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: demo
+
+      - name: Install trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+
+      # Deployed at /mokuren/playground/ (GitHub Pages project site,
+      # subpath convention — see demo/Trunk.toml) so asset URLs resolve
+      # correctly; the site root is left free for other content later.
+      - name: trunk build --release
+        working-directory: demo
+        run: trunk build --release --public-url /mokuren/playground/
+
+      - name: Stage Pages artifact
+        run: |
+          mkdir -p pages-root/playground
+          cp -r demo/dist/. pages-root/playground/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages-root
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

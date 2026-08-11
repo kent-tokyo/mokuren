@@ -1,6 +1,11 @@
 /target
+/demo/target
+/demo/dist
 .claude/settings.local.json
 *.proptest-regressions
+
+# Internal planning doc, not part of the public repo.
+/ROADMAP.md
 
 # tools/music21_chorale_extractor.py output must never be vendored
 # (BENCHMARK.md: "reference, don't vendor") — this is a safety net in

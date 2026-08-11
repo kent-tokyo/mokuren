@@ -1,0 +1,9 @@
+[package]
+name = "mokuren-demo"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+leptos = { version = "0.8.20", features = ["csr"] }
+mokuren = { path = ".." }

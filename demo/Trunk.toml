@@ -1,0 +1,13 @@
+[build]
+target = "index.html"
+# No public_url here on purpose: local `trunk serve`/`trunk build` stay
+# at the default `/` so dev is a plain `http://127.0.0.1:8420/`. The
+# real deployment (https://kent-tokyo.github.io/mokuren/playground/ —
+# same /playground/ subpath convention as
+# https://kent-tokyo.github.io/chematic/playground/) passes
+# `--public-url /mokuren/playground/` as a CI-only build flag instead
+# (see .github/workflows/deploy-demo.yml) — a value only correct for
+# that one deployment target shouldn't be the shared local default.
+
+[serve]
+port = 8420
