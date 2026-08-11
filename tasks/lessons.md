@@ -363,3 +363,30 @@ gets fixed and how late enough information exists to know which label
 was correct. Worth checking for again whenever a new chromatic
 vocabulary addition can coincide in pitch with an existing diatonic (or
 other chromatic) one.
+
+## Adopting a "cleaner" intermediate architecture layer before its payoff exists is real work for zero visible improvement
+
+When the user proposed routing the demo's notation through `acorde-core`
+(a sibling notation library) instead of converting straight to
+VexFlow-JSON, the proposal was well-reasoned but based on a prose
+description of acorde's API, not verified code. Before writing any
+adapter, cloning the actual repo and reading `crates/core/src/model/`
+directly confirmed the description was accurate (real
+Score/Part/Staff/Measure/Note types, matching dependency claims) — worth
+doing every time a plan leans on a claim about an external, unfamiliar
+codebase, even (especially) when the claim comes from someone who
+sounds confident about it.
+
+Separately, the architecture question itself: `acorde-layout` is
+pixel-free — it has no renderer. Routing mokuren → acorde::Score →
+VexFlow-JSON today would add a second conversion step for the *exact
+same rendered output* the direct path already produces; the real payoff
+(dropping VexFlow, MusicXML/MIDI export) needs a renderer on the acorde
+side that doesn't exist yet. Built the adapter as an independent,
+tested crate (verified via `acorde_core::validate()`, not just "it
+compiles") but deliberately did not wire it into the demo — recorded
+the reasoning in `tasks/todo.md` instead of leaving it implicit. The
+general shape: "this architecture will be cleaner once X exists" is a
+real reason to build toward X, but not a reason to switch to the new
+path *before* X exists, when the old path still works and switching
+early only adds a hop with no observable difference.

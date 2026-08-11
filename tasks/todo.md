@@ -195,6 +195,19 @@ scope and phasing — this is the flat, scannable version.
   raw search budget — if it barely moves, the 45 search-exhausted
   failures are a genuine budget problem and Phase B is the right next
   step regardless of Phase A's outcome on the equivalent-label cases.
+  - Progress as of 2026-08-11 19:50 JST: 16 → 73.0% (254/348), 32 →
+    80.2% (279/348, matches the earlier-known baseline), 64 → 85.9%
+    (299/348, 25 search-exhausted), 128 → 88.8% (309/348, 15
+    search-exhausted) all done; 256 in progress (started 19:08, ~40min
+    in), 512 not yet started. Ran as a strictly sequential chain (not
+    parallel) from width 64 onward specifically so each width's own
+    runtime numbers aren't contaminated by CPU contention with another
+    width's run — 16 and 32 *did* run in parallel with each other
+    before that was noticed, so their runtime median/p95 figures are
+    mildly inflated and shouldn't be read as precise, though coverage
+    and search-exhausted counts are unaffected. Full table (all 6
+    widths, coverage + search-exhausted + runtime) to be written up
+    once 512 finishes.
 - **Next**: re-taxonomize what's still failing in minor (45
   search-exhausted, 7 chordal-seventh-resolution, 11 voice-overlap; the
   6 secondary-dominant-resolution failures above are now understood and
