@@ -1,0 +1,16 @@
+[package]
+name = "mokuren-acorde"
+version = "0.1.0"
+edition = "2024"
+description = "Adapter converting mokuren's HarmonizationResult into an acorde-core Score"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/kent-tokyo/mokuren"
+keywords = ["music-theory", "harmony", "notation"]
+categories = ["multimedia::audio"]
+# Independent crate (own Cargo.toml, not a workspace member) so mokuren
+# core never gains a notation-library dependency — see src/lib.rs.
+publish = false
+
+[dependencies]
+acorde-core = "0.1"
+mokuren = { path = ".." }

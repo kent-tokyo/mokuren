@@ -1,6 +1,7 @@
 /target
 /demo/target
 /demo/dist
+/mokuren-acorde/target
 /.claude/
 *.proptest-regressions
 

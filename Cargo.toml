@@ -7,10 +7,10 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/kent-tokyo/mokuren"
 keywords = ["music-theory", "harmony", "composition", "explainable"]
 categories = ["algorithms", "science"]
-# demo/ is an independent crate (its own Cargo.toml, not a workspace
-# member) that depends on this one via a path — never bundle it into
-# the published mokuren crate.
-exclude = ["demo/"]
+# demo/ and mokuren-acorde/ are independent crates (their own
+# Cargo.toml, not workspace members) that depend on this one via a
+# path — never bundle them into the published mokuren crate.
+exclude = ["demo/", "mokuren-acorde/"]
 
 [dependencies]
 
