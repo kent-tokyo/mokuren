@@ -183,6 +183,13 @@ fn BeamSearchRace(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    Compose,
+    Search,
+    Explain,
+}
+
 #[component]
 fn App() -> impl IntoView {
     let lang = i18n::provide_lang();
@@ -192,6 +199,7 @@ fn App() -> impl IntoView {
     let width = RwSignal::new(32usize);
     let result = RwSignal::new(None::<std::result::Result<HarmonizationResult, String>>);
     let selected_position = RwSignal::new(None::<usize>);
+    let active_tab = RwSignal::new(Tab::Compose);
 
     let run = move || {
         let outcome = harmonize(
@@ -215,17 +223,35 @@ fn App() -> impl IntoView {
                     <h1>"mokuren"</h1>
                     <p class="tagline">{move || i18n::tagline(lang.get())}</p>
                 </div>
-                <select
-                    class="lang-toggle"
-                    on:change=move |ev| lang.set(i18n::Lang::from_label(&event_target_value(&ev)))
-                >
-                    <option value=i18n::Lang::En.label() selected=move || lang.get() == i18n::Lang::En>
-                        {i18n::Lang::En.label()}
-                    </option>
-                    <option value=i18n::Lang::Ja.label() selected=move || lang.get() == i18n::Lang::Ja>
-                        {i18n::Lang::Ja.label()}
-                    </option>
-                </select>
+                <div class="lang-select">
+                    <svg
+                        class="lang-icon"
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="2" y1="12" x2="22" y2="12"></line>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                    </svg>
+                    <select
+                        class="lang-toggle"
+                        on:change=move |ev| lang.set(i18n::Lang::from_label(&event_target_value(&ev)))
+                    >
+                        <option value=i18n::Lang::En.label() selected=move || lang.get() == i18n::Lang::En>
+                            {i18n::Lang::En.label()}
+                        </option>
+                        <option value=i18n::Lang::Ja.label() selected=move || lang.get() == i18n::Lang::Ja>
+                            {i18n::Lang::Ja.label()}
+                        </option>
+                    </select>
+                </div>
             </div>
 
             <section class="input">
@@ -269,9 +295,31 @@ fn App() -> impl IntoView {
                 <button on:click=move |_| run()>{move || i18n::harmonize_button(lang.get())}</button>
             </section>
 
-            <BeamSearchRace melody_text=melody_text tonic_text=tonic_text mode=mode />
+            <div class="tabs">
+                <button
+                    class:active=move || active_tab.get() == Tab::Compose
+                    on:click=move |_| active_tab.set(Tab::Compose)
+                >
+                    {move || i18n::harmonization_header(lang.get())}
+                </button>
+                <button
+                    class:active=move || active_tab.get() == Tab::Search
+                    on:click=move |_| active_tab.set(Tab::Search)
+                >
+                    {move || i18n::beam_race_header(lang.get())}
+                </button>
+                <button
+                    class:active=move || active_tab.get() == Tab::Explain
+                    on:click=move |_| active_tab.set(Tab::Explain)
+                >
+                    {move || i18n::explain_tab_label(lang.get())}
+                </button>
+            </div>
 
             {move || {
+                if active_tab.get() != Tab::Compose {
+                    return None;
+                }
                 result
                     .get()
                     .map(|outcome| match outcome {
@@ -318,6 +366,38 @@ fn App() -> impl IntoView {
                         Err(e) => {
                             let message = move || format!("{}{e}", i18n::error_prefix(lang.get()));
                             view! { <p class="error">{message}</p> }.into_any()
+                        }
+                    })
+            }}
+
+            {move || {
+                (active_tab.get() == Tab::Search)
+                    .then(|| view! { <BeamSearchRace melody_text=melody_text tonic_text=tonic_text mode=mode /> })
+            }}
+
+            {move || {
+                (active_tab.get() == Tab::Explain)
+                    .then(|| {
+                        view! {
+                            <section class="explain">
+                                <h2>{move || i18n::explain_tab_label(lang.get())}</h2>
+                                <p>{move || i18n::explain_intro(lang.get())}</p>
+
+                                <h3>{move || i18n::harmonization_header(lang.get())}</h3>
+                                <p>{move || i18n::explain_compose_body(lang.get())}</p>
+
+                                <h3>{move || i18n::beam_race_header(lang.get())}</h3>
+                                <p>{move || i18n::explain_search_body_1(lang.get())}</p>
+                                <p>{move || i18n::explain_search_body_2(lang.get())}</p>
+                                <dl>
+                                    <dt>{move || i18n::beam_race_width_col(lang.get())}</dt>
+                                    <dd>{move || i18n::explain_width(lang.get())}</dd>
+                                    <dt>{move || i18n::beam_race_candidates_col(lang.get())}</dt>
+                                    <dd>{move || i18n::explain_candidates(lang.get())}</dd>
+                                    <dt>{move || i18n::beam_race_runtime_col(lang.get())}</dt>
+                                    <dd>{move || i18n::explain_runtime(lang.get())}</dd>
+                                </dl>
+                            </section>
                         }
                     })
             }}

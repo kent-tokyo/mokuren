@@ -115,4 +115,34 @@ translations! {
     beam_race_runtime_col => ("Runtime (ms)", "実行時間 (ms)"),
     beam_race_success => ("SUCCESS", "成功"),
     beam_race_fail => ("FAIL", "失敗"),
+
+    explain_tab_label => ("About", "使い方"),
+    explain_intro => (
+        "mokuren harmonizes a melody into four voices (SATB) and can explain every decision it makes. This demo has two parts:",
+        "mokurenは旋律を4声体(SATB)に和声付けし、すべての判断を説明できます。このデモには2つの機能があります。",
+    ),
+    explain_compose_body => (
+        "Enter a melody, key, and mode, then Harmonize. Click any chord in the result to see why() it was chosen, and click an alternative to see why_not() it wasn't.",
+        "旋律・調・長短を入力してHarmonizeを押します。結果のコードをクリックするとなぜそのコードが選ばれたか(why())、候補をクリックするとなぜ選ばれなかったか(why_not())を確認できます。",
+    ),
+    explain_search_body_1 => (
+        "mokuren builds a harmonization one chord at a time. At each step there are many possible voicings; trying every combination for every chord would be too slow, so mokuren only keeps a limited number of the best partial harmonizations and discards the rest — that limit is the beam width.",
+        "mokurenは和音を1つずつ順番に決めていきます。各ステップには多数の配置(voicing)候補があり、すべての組み合わせを試すと遅すぎるため、mokurenは各ステップで上位いくつかの部分的な和声進行だけを残し、残りは切り捨てます。この「残す数」がビーム幅です。",
+    ),
+    explain_search_body_2 => (
+        "A narrow beam is fast but can lose the eventual best (or only) path early; a wide beam explores more but costs more candidates and runtime. This race re-harmonizes the same melody at several widths so you can see exactly how wide a beam it actually needs.",
+        "幅が狭いと速いですが、本当に良い(あるいは唯一の)経路を早い段階で捨ててしまうことがあります。幅が広いとより多くの経路を探索できますが、候補数と実行時間が増えます。このレースは同じ旋律を複数の幅で再和声付けし、この旋律に実際どれだけの幅が必要かを確認できるようにしたものです。",
+    ),
+    explain_width => (
+        "How many partial harmonizations mokuren kept alive at each step during this run.",
+        "この実行で、各ステップにおいてmokurenが保持した部分的な和声進行の数。",
+    ),
+    explain_candidates => (
+        "The total number of chord voicings mokuren generated and scored across the whole search at this width.",
+        "この幅での探索全体で、mokurenが生成・採点した和音配置の総数。",
+    ),
+    explain_runtime => (
+        "Wall-clock time for the search at this width, measured in this browser.",
+        "この幅での探索にかかった実時間(このブラウザでの計測値)。",
+    ),
 }
