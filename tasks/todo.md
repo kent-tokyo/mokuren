@@ -284,10 +284,13 @@ scope and phasing — this is the flat, scannable version.
     *lowered* 6th, the same scale degree `ChordalSeventhResolutionRule`
     already produces failures on, so it was deliberately left out
     rather than risk an ambiguous new failure.
-  - New, surfaced by the v0.5.0 re-run: 6 minor chorales fail with
-    `rule conflict (secondary dominant resolution)` — minor's new
-    applied dominants hitting a resolution edge case major's corpus
-    never exercised. Not bisected yet.
+  - ~~New, surfaced by the v0.5.0 re-run: 6 minor chorales fail with
+    `rule conflict (secondary dominant resolution)`~~ — these are the
+    same 6 chorales (Riemenschneider 19, 56, 59, 162, 163, 226) already
+    bisected under "Bisect all 6 secondary-dominant-resolution failures
+    (v0.2.0 release gate)" above; this bullet went stale when that
+    bisection landed. See that entry (and README limitation item 3) for
+    the actual root cause — not a new, unexamined gap.
 - Six-four handling is backward-looking only (pedal/passing bass check),
   can't confirm a true cadential 6/4 resolves to V. Fixing this properly
   needs the rule engine to see forward context, which it currently doesn't
