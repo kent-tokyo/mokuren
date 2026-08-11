@@ -212,6 +212,39 @@ scope and phasing — this is the flat, scannable version.
   own implementation work if the equivalence-class candidate needs a
   richer failure category anyway.
 
+## Demo (playground)
+
+- ~~Beam Search Race, tab UI (Harmonization / Beam Search Race / About),
+  SATB staff notation (vendored VexFlow 5, no dependency added to
+  mokuren core), Web Audio playback~~ — done 2026-08-11, all live at
+  the playground. Notation click syncs `selected_position` with the
+  existing alternatives/why panel; no JS -> Rust callback needed for
+  either notation clicks or playback completion (container-level
+  `data-position` read, Rust-computed timeout respectively).
+- **`mokuren-acorde` adapter crate** (user directive 2026-08-11): converts
+  `HarmonizationResult` into an `acorde_core::Score` (kent-tokyo/acorde,
+  a separate published notation library with a real
+  Score/Part/Staff/Measure/Note model, MusicXML/MIDI/ABC I/O, and a
+  pixel-free layout engine) — one "Choir" part, two staves
+  (soprano+alto treble, tenor+bass bass), split into measures by the
+  given `Meter`. Independent crate (own `Cargo.toml`, path-dependency
+  on mokuren, not a workspace member, excluded from the published
+  `mokuren` crate) so core never gains a notation-library dependency —
+  same pattern as `demo/`. Verified: round-trip test passes
+  `acorde_core::validate()` with zero structural errors; key-signature
+  fifths checked against known values across major/minor and
+  sharp/flat keys (4 cases).
+  - **Deliberately not wired into the demo yet.** `acorde-layout` is
+    pixel-free (no renderer), so routing through it today would only
+    add a second conversion step (`mokuren::Score → acorde::Score →
+    VexFlow-JSON`) for the exact same rendered output the direct
+    `notation.rs` path already produces — no visible improvement. The
+    real payoff (dropping the vendored VexFlow JS entirely, or
+    MusicXML/MIDI export from the demo) needs a renderer on the acorde
+    side that doesn't exist yet (`acorde-render-svg`, proposed but not
+    started). Revisit adapter → demo wiring once one of those is
+    actually needed, not before.
+
 ## Real correctness gaps (tracked in more detail in README "Current limitations")
 
 - **Non-chord tones (passing/neighbor tones) aren't modeled at all** —
